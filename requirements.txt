@@ -1,0 +1,4 @@
+scrapling
+browserforge
+curl_cffi
+PySide6
