@@ -166,9 +166,5 @@ MIT License — free to use, modify, and distribute.
 
 ## 🤝 Contributing
 
-Pull requests welcome. Ideas for improvement:
-- [ ] Google Maps / Yelp API integration for more results
-- [ ] Email verification / bounce checking
-- [ ] Export to Google Sheets
 - [ ] Scheduled / recurring searches
 - [ ] Contractor rating/review data
