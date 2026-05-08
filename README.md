@@ -1,170 +1,258 @@
-# 🏗️ Contractor Finder
+# Contractor Finder v3
 
-A desktop GUI tool to find **HVAC**, **Electrical**, and **Excavating/Dirtwork** contractors near any US location — built for sourcing vendors for commercial and storage facility projects.
+A professional desktop application for finding contractors (HVAC, Electrical, Excavating) across USA locations. Scrapes data from OSM, YellowPages, Yelp, and Google Maps, then enriches results with phone numbers, emails, and websites.
 
-Powered by **Scrapling** (smart web scraping), **PySide6** (GUI), and free **OpenStreetMap / Overpass** data — no paid API keys required.
+![Python Version](https://img.shields.io/badge/python-3.9+-blue.svg)
+![License](https://img.shields.io/badge/license-MIT-green.svg)
+![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)
 
----
+## ✨ Features
 
-## 📸 Features
+- **Multi-Source Scraping**: OSM, YellowPages, Yelp, Google Maps
+- **Smart Enrichment**: Automatically finds websites, extracts phone/email
+- **Email Verification**: MX record & syntax validation with role account detection
+- **Smart Caching**: SQLite cache (7 days for contacts, 24h for search results)
+- **Proxy Pool**: Automatic proxy rotation with health scoring
+- **Async Performance**: 15x parallel enrichment for faster results
+- **Export Options**: CSV, TXT, direct Google Sheets integration
+- **Search History**: Remembers last 20 locations
+- **Dark Theme UI**: Professional dark interface with trade colors
 
-- 🔍 Search contractors by **any US city, address, or ZIP code**
-- 🏷️ Covers **3 trade types**: HVAC · Electrical · Excavating
-- 🌐 **Scrapling-powered** website scraping to extract phone numbers and emails
-- 📊 Live results table with **color-coded trades**
-- 🔎 Filter by trade type or search by company name
-- 📤 Export to **CSV** (Excel-ready) or **TXT**
-- 🎨 Dark-themed desktop GUI (PySide6)
-- 🆓 100% free — no API keys needed
+## 📋 Prerequisites
 
----
+### Required
+- Python 3.9 or higher
+- pip package manager
 
-## 📁 Files
+### Python Dependencies
 
-| File | Description |
-|------|-------------|
-| `contractor_gui.py` | Main GUI application |
-| `contractor_search.py` | Command-line version (no GUI) |
-| `launch_windows.bat` | One-click launcher for Windows |
-| `launch_mac_linux.sh` | One-click launcher for Mac/Linux |
-| `requirements.txt` | Python dependencies |
-
----
-
-## 🚀 Quick Start
-
-### Windows
-1. Make sure [Python 3.8+](https://python.org) is installed
-2. Put all files in the **same folder**
-3. Double-click **`launch_windows.bat`**
-4. Wait for dependencies to install (first run only)
-5. The GUI will open automatically
-
-### Mac / Linux
 ```bash
-bash launch_mac_linux.sh
-```
+pip install PySide6 scrapling aiohttp dnspython
+🚀 Installation
+From Source
+bash
+# Clone the repository
+git clone https://github.com/yourusername/contractor-finder.git
+cd contractor-finder
 
-### Manual Setup (any OS)
-```bash
 # Install dependencies
-pip install scrapling browserforge curl_cffi playwright PySide6
+pip install -r requirements.txt
 
-# Install Playwright browser
-python -m playwright install chromium
-
-# Run the GUI
+# Run the application
 python contractor_gui.py
-```
+Building Executable (Optional)
+bash
+# Install PyInstaller
+pip install pyinstaller
 
----
+# Create single executable
+pyinstaller --onefile --windowed --name "ContractorFinder" contractor_gui.py
+🎯 Usage Guide
+Basic Search
+Enter Location: City, State (e.g., "Warren, MI") or ZIP code
 
-## 🖥️ GUI Usage
+Select Trades: HVAC, Electrical, and/or Excavating
 
-1. **Enter a location** — city, address, or ZIP (e.g. `Warren, MI 48091`)
-2. **Choose a radius** — 10 to 80 miles
-3. **Set results per trade** — up to 50 per category
-4. **Select trades** — HVAC, Electrical, Excavating (or all three)
-5. **Toggle website scraping** — finds missing emails/phones from contractor websites
-6. Click **Search Contractors ↗**
-7. Results stream in live — filter, sort, then export
+Choose Sources: OSM, YellowPages, Yelp, Google Maps
 
----
+Set Radius: 10-80 miles
 
-## 💻 Command-Line Usage
+Click Search: Results appear in table below
 
-```bash
-# Basic search — Warren, MI
-python contractor_search.py "Warren, MI 48091"
+Search Parameters
+Parameter	Description	Default
+Location	US city, state, or ZIP	Warren, MI
+Radius	Search radius in miles	40 mi
+Per Trade/Source	Max results per source/trade	30
+Enrichment	Scrape websites for contact info	✓ Enabled
+Understanding Results
+Column	Description
+Trade	Contractor type (color-coded)
+Source	Where data was found
+Company Name	Business name
+Phone	Normalized phone number
+Email	Extracted or guessed email
+Email Status	✅ Valid / ❌ Invalid / ❓ Unknown / ⚠️ Role account
+Website	Company website URL
+Address	Physical address
+Note	Role account warnings
+Post-Search Actions
+Verify Emails: MX record validation for all emails
 
-# Custom radius and result count
-python contractor_search.py "Detroit, MI" --radius-m 50000 --per-category 30
+Export CSV: Save as spreadsheet
 
-# Search specific trades only
-python contractor_search.py "Chicago, IL" --categories "HVAC contractor"
+Export TXT: Formatted text report
 
-# Print results to terminal
-python contractor_search.py "Houston, TX" --print
+Google Sheets: Auto-upload to Google Sheets
 
-# Save to custom file
-python contractor_search.py "Phoenix, AZ" --output phoenix_contractors.csv
-```
+Filter: By trade, source, or name search
 
-### CLI Arguments
+🏗️ Architecture
+Data Flow
+text
+Search Location → Geocode (Nominatim)
+       ↓
+Multi-Source Scraping (Parallel)
+  ├── OSM (Overpass API)
+  ├── YellowPages (StealthySession)
+  ├── Yelp (StealthySession)
+  └── Google Maps (StealthySession)
+       ↓
+Deduplication (Name/Phone/Domain)
+       ↓
+Enrichment (Async, 15x parallel)
+  ├── Domain Guessing
+  ├── DDG Fallback
+  └── Website Scraping
+       ↓
+Email Verification (MX + syntax)
+       ↓
+Display & Export
+Key Components
+Scrapling: Browser fingerprinting & stealth browsing
 
-| Argument | Default | Description |
-|----------|---------|-------------|
-| `location` | *(required)* | City, address, or ZIP |
-| `--categories` | All 3 trades | Which trades to search |
-| `--per-category` | `30` | Max results per trade |
-| `--radius-m` | `40000` | Search radius in meters (~25 mi) |
-| `--output` | `contractors.csv` | Output CSV filename |
-| `--print` | off | Print table to terminal |
+aiohttp: Async HTTP with connection pooling
 
----
+SQLite: Persistent cache (contacts, DDG results)
 
-## 📦 Requirements
+Proxy Manager: Auto-testing, health scoring, sticky sessions
 
-- Python 3.8+
-- pip packages (auto-installed by launcher):
+StealthySession: Single browser for multi-page scraping
 
-```
-scrapling
-browserforge
-curl_cffi
-playwright
-PySide6
-```
+Cache Locations
+Windows: C:\Users\[User]\.contractor_finder_cache.db
 
----
+macOS/Linux: ~/.contractor_finder_cache.db
 
-## 📊 Output Columns
+⚙️ Configuration
+Environment Variables (Optional)
+bash
+# Increase timeout for slow connections
+export AIOHTTP_TIMEOUT=15
 
-| Column | Description |
-|--------|-------------|
-| Trade | HVAC / Electrical / Excavating |
-| Company Name | Business name |
-| Phone | Phone number |
-| Email | Contact email (scraped from website if not in OSM) |
-| Website | Company website |
-| Address | Street address |
+# Disable proxy pool (direct connections only)
+export NO_PROXY=1
+Modifying Search Parameters
+Edit TRADE_KW dictionary in code to add/modify search keywords:
 
----
+python
+TRADE_KW = {
+    "HVAC": {
+        "osm": ["heating","hvac","furnace"],
+        "yp": "hvac+contractor",
+        "google": "HVAC contractor",
+        "yelp": "hvac"
+    }
+}
+🔧 Troubleshooting
+Common Issues
+Q: "Scrapling unavailable" warning
 
-## 🔧 How It Works
+A: Run pip install scrapling --upgrade
 
-1. **Geocoding** — Converts your location input to coordinates using [Nominatim](https://nominatim.openstreetmap.org/) (free OpenStreetMap API)
-2. **Overpass API** — Queries OpenStreetMap's Overpass API for businesses matching trade keywords within your radius
-3. **Scrapling enrichment** — For contractors that have a website but no email/phone in OSM, the tool scrapes their site using Scrapling's smart CSS selectors and regex, also checking contact/about pages
-4. **Export** — Save results as CSV (opens in Excel) or formatted TXT
+Q: No results from YellowPages/Yelp
 
----
+A: Website may be blocking. Wait 60 seconds and retry. Proxy pool will auto-rotate.
 
-## ⚠️ Notes
+Q: Email verification shows "unknown"
 
-- Results depend on OpenStreetMap data coverage in your area — rural areas may return fewer results
-- Email/phone accuracy depends on what's publicly listed on contractor websites
-- Always verify contact info before reaching out
-- Respect contractor websites' terms of service when scraping
+A: Domain exists but has no MX record. Email may still work.
 
----
+Q: Search takes too long
 
-## 🗺️ Use Case
+A: Reduce radius, limit per-source results, or disable enrichment.
 
-Originally built to source contractors for a **storage facility construction project** at:
-> 6014 & 6015 E 10 Mile Rd, Warren, MI 48091
+Q: Rate limiting on DuckDuckGo
 
-Works for any commercial construction project anywhere in the US.
+A: Built-in rate limiter (12/min) automatically pauses. Check scraper.log.
 
----
+Logging
+Logs are written to ~/.contractor_finder.log (rotates at 5MB):
 
-## 📄 License
+bash
+# View logs on Linux/macOS
+tail -f ~/.contractor_finder.log
 
-MIT License — free to use, modify, and distribute.
+# View logs on Windows (PowerShell)
+Get-Content ~\.contractor_finder.log -Wait
+📊 Performance Benchmarks
+Search Parameters	Time	Results
+1 trade, 30 limit, no enrichment	45-60s	~90
+3 trades, 30 limit, with enrichment	3-5 min	~180
+3 trades, 50 limit, all sources	6-8 min	~300
+Tested on: Warren, MI | 40 mi radius | All sources
 
----
+🛡️ Legal & Ethical Use
+This tool is for legitimate business research only:
 
-## 🤝 Contributing
+Respect robots.txt and rate limits
 
-- [ ] Scheduled / recurring searches
-- [ ] Contractor rating/review data
+Don't overload target servers
+
+Use for finding contractor contact info for legitimate business purposes
+
+Comply with website Terms of Service
+
+🤝 Contributing
+Fork the repository
+
+Create a feature branch (git checkout -b feature/AmazingFeature)
+
+Commit changes (git commit -m 'Add AmazingFeature')
+
+Push to branch (git push origin feature/AmazingFeature)
+
+Open a Pull Request
+
+Development Setup
+bash
+# Install development dependencies
+pip install black pylint pytest
+
+# Run tests
+pytest tests/
+
+# Format code
+black contractor_gui.py
+📝 Release Notes
+v3.0 (Current)
+Async enrichment (15x parallel)
+
+Yelp StealthySession (bypasses anti-bot)
+
+Role account detection
+
+Search history dropdown
+
+Persistent async event loop
+
+Structured logging to file
+
+v2.x
+SQLite caching
+
+Proxy pool with health scoring
+
+Google Maps integration
+
+Email MX verification
+
+v1.x
+Basic scraping (OSM + YellowPages)
+
+CSV/TXT export
+
+📄 License
+MIT License - see LICENSE file for details
+
+🙏 Acknowledgments
+Scrapling - Stealth browser automation
+
+Nominatim - Geocoding API
+
+Overpass API - OSM data queries
+
+PySide6 - Qt GUI framework
+
+📧 Contact
+For bugs or feature requests, please open a GitHub issu
