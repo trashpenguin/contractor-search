@@ -1,258 +1,307 @@
 # Contractor Finder v3
 
-A professional desktop application for finding contractors (HVAC, Electrical, Excavating) across USA locations. Scrapes data from OSM, YellowPages, Yelp, and Google Maps, then enriches results with phone numbers, emails, and websites.
+Professional desktop application for finding contractors (HVAC, Electrical, Excavating) across USA locations. The application aggregates data from multiple sources including OpenStreetMap, YellowPages, Yelp, and Google Maps, then enriches the results with phone numbers, emails, websites, and business details.
 
 ![Python Version](https://img.shields.io/badge/python-3.9+-blue.svg)
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)
 
-## ✨ Features
+---
 
-- **Multi-Source Scraping**: OSM, YellowPages, Yelp, Google Maps
-- **Smart Enrichment**: Automatically finds websites, extracts phone/email
-- **Email Verification**: MX record & syntax validation with role account detection
-- **Smart Caching**: SQLite cache (7 days for contacts, 24h for search results)
-- **Proxy Pool**: Automatic proxy rotation with health scoring
-- **Async Performance**: 15x parallel enrichment for faster results
-- **Export Options**: CSV, TXT, direct Google Sheets integration
-- **Search History**: Remembers last 20 locations
-- **Dark Theme UI**: Professional dark interface with trade colors
+# ✨ Features
 
-## 📋 Prerequisites
+- Multi-source contractor scraping
+- Async enrichment pipeline
+- SQLite caching system
+- Smart proxy rotation with health scoring
+- Email extraction & validation
+- Website discovery & scraping
+- Google Sheets export support
+- Dark-themed desktop UI
+- Search history support
+- Multi-trade searching
+- Structured logging
+- High-speed async processing
 
-### Required
+---
+
+# 🔍 Supported Sources
+
+| Source | Purpose |
+|---|---|
+| OpenStreetMap (OSM) | Business discovery |
+| YellowPages | Contractor listings |
+| Yelp | Business reviews & contact discovery |
+| Google Maps | Additional contractor discovery |
+| DuckDuckGo | Website & email enrichment |
+
+---
+
+# 📋 Requirements
+
+## Python
+
 - Python 3.9 or higher
-- pip package manager
 
-### Python Dependencies
+## Dependencies
+
+Install required packages:
 
 ```bash
-pip install PySide6 scrapling aiohttp dnspython
+pip install PySide6 scrapling aiohttp dnspython aiosqlite
+```
+Or install from requirements.txt:
+```bash
+pip install -r requirements.txt
+```
 🚀 Installation
-From Source
-bash
-# Clone the repository
+Clone Repository
 git clone https://github.com/yourusername/contractor-finder.git
 cd contractor-finder
-
-# Install dependencies
+Install Dependencies
 pip install -r requirements.txt
-
-# Run the application
+Run Application
 python contractor_gui.py
-Building Executable (Optional)
-bash
-# Install PyInstaller
+📦 Build Executable
+Install PyInstaller
 pip install pyinstaller
-
-# Create single executable
+Build Single Executable
 pyinstaller --onefile --windowed --name "ContractorFinder" contractor_gui.py
+
+Executable will be generated inside:
+
+dist/
 🎯 Usage Guide
 Basic Search
-Enter Location: City, State (e.g., "Warren, MI") or ZIP code
+Enter a US city, state, or ZIP code
+Select one or more trades
+Select data sources
+Configure search radius
+Click Search
 
-Select Trades: HVAC, Electrical, and/or Excavating
+Results will appear in the results table.
 
-Choose Sources: OSM, YellowPages, Yelp, Google Maps
-
-Set Radius: 10-80 miles
-
-Click Search: Results appear in table below
-
-Search Parameters
+⚙️ Search Parameters
 Parameter	Description	Default
-Location	US city, state, or ZIP	Warren, MI
-Radius	Search radius in miles	40 mi
-Per Trade/Source	Max results per source/trade	30
-Enrichment	Scrape websites for contact info	✓ Enabled
-Understanding Results
+Location	US city/state or ZIP	Warren, MI
+Radius	Search radius	40 miles
+Per Trade/Source	Max results per source	30
+Enrichment	Website/email extraction	Enabled
+📊 Result Columns
 Column	Description
-Trade	Contractor type (color-coded)
-Source	Where data was found
+Trade	Contractor category
+Source	Data source
 Company Name	Business name
-Phone	Normalized phone number
+Phone	Normalized phone
 Email	Extracted or guessed email
-Email Status	✅ Valid / ❌ Invalid / ❓ Unknown / ⚠️ Role account
-Website	Company website URL
-Address	Physical address
-Note	Role account warnings
-Post-Search Actions
-Verify Emails: MX record validation for all emails
-
-Export CSV: Save as spreadsheet
-
-Export TXT: Formatted text report
-
-Google Sheets: Auto-upload to Google Sheets
-
-Filter: By trade, source, or name search
-
-🏗️ Architecture
+Email Status	Validation status
+Website	Business website
+Address	Business address
+Note	Additional warnings/info
+🏗️ Application Architecture
 Data Flow
-text
-Search Location → Geocode (Nominatim)
-       ↓
-Multi-Source Scraping (Parallel)
-  ├── OSM (Overpass API)
-  ├── YellowPages (StealthySession)
-  ├── Yelp (StealthySession)
-  └── Google Maps (StealthySession)
-       ↓
-Deduplication (Name/Phone/Domain)
-       ↓
-Enrichment (Async, 15x parallel)
-  ├── Domain Guessing
-  ├── DDG Fallback
-  └── Website Scraping
-       ↓
-Email Verification (MX + syntax)
-       ↓
+Search Location
+      ↓
+Geocode via Nominatim
+      ↓
+Parallel Multi-Source Scraping
+ ├── OSM
+ ├── YellowPages
+ ├── Yelp
+ └── Google Maps
+      ↓
+Deduplication
+      ↓
+Async Enrichment Pipeline
+ ├── Domain Guessing
+ ├── DDG Fallback Search
+ ├── Website Scraping
+ └── Contact Extraction
+      ↓
+Email Validation
+      ↓
 Display & Export
-Key Components
-Scrapling: Browser fingerprinting & stealth browsing
+🔧 Core Components
+Scrapling
 
-aiohttp: Async HTTP with connection pooling
+Stealth browser automation & anti-bot handling.
 
-SQLite: Persistent cache (contacts, DDG results)
+aiohttp
 
-Proxy Manager: Auto-testing, health scoring, sticky sessions
+Async HTTP requests with connection pooling.
 
-StealthySession: Single browser for multi-page scraping
+SQLite
 
-Cache Locations
-Windows: C:\Users\[User]\.contractor_finder_cache.db
+Persistent caching system for:
 
-macOS/Linux: ~/.contractor_finder_cache.db
+contacts
+DDG results
+search history
+websites
+Proxy Manager
 
+Features:
+
+automatic proxy testing
+health scoring
+sticky sessions
+retry handling
+Async Enrichment
+
+Parallel enrichment pipeline:
+
+website scraping
+email extraction
+contact discovery
+MX verification
+💾 Cache Locations
+Windows
+C:\Users\[USERNAME]\.contractor_finder_cache.db
+Linux/macOS
+~/.contractor_finder_cache.db
 ⚙️ Configuration
-Environment Variables (Optional)
-bash
-# Increase timeout for slow connections
+Optional Environment Variables
+Linux/macOS
 export AIOHTTP_TIMEOUT=15
-
-# Disable proxy pool (direct connections only)
 export NO_PROXY=1
-Modifying Search Parameters
-Edit TRADE_KW dictionary in code to add/modify search keywords:
+Windows PowerShell
+$env:AIOHTTP_TIMEOUT=15
+$env:NO_PROXY=1
+🔨 Modifying Trade Keywords
 
-python
+Edit the TRADE_KW dictionary:
+
 TRADE_KW = {
     "HVAC": {
-        "osm": ["heating","hvac","furnace"],
+        "osm": ["heating", "hvac", "furnace"],
         "yp": "hvac+contractor",
         "google": "HVAC contractor",
         "yelp": "hvac"
     }
 }
-🔧 Troubleshooting
-Common Issues
-Q: "Scrapling unavailable" warning
+📈 Performance Benchmarks
+Search Type	Time	Approx Results
+1 trade, no enrichment	45–60 sec	~90
+3 trades, enrichment	3–5 min	~180
+3 trades, all sources	6–8 min	~300
+Tested On
+Warren, MI
+40 mile radius
+All sources enabled
+🔍 Logging
 
-A: Run pip install scrapling --upgrade
+Logs are stored at:
 
-Q: No results from YellowPages/Yelp
-
-A: Website may be blocking. Wait 60 seconds and retry. Proxy pool will auto-rotate.
-
-Q: Email verification shows "unknown"
-
-A: Domain exists but has no MX record. Email may still work.
-
-Q: Search takes too long
-
-A: Reduce radius, limit per-source results, or disable enrichment.
-
-Q: Rate limiting on DuckDuckGo
-
-A: Built-in rate limiter (12/min) automatically pauses. Check scraper.log.
-
-Logging
-Logs are written to ~/.contractor_finder.log (rotates at 5MB):
-
-bash
-# View logs on Linux/macOS
+Windows
+~\.contractor_finder.log
+Linux/macOS
+~/.contractor_finder.log
+View Logs
+Linux/macOS
 tail -f ~/.contractor_finder.log
-
-# View logs on Windows (PowerShell)
+Windows PowerShell
 Get-Content ~\.contractor_finder.log -Wait
-📊 Performance Benchmarks
-Search Parameters	Time	Results
-1 trade, 30 limit, no enrichment	45-60s	~90
-3 trades, 30 limit, with enrichment	3-5 min	~180
-3 trades, 50 limit, all sources	6-8 min	~300
-Tested on: Warren, MI | 40 mi radius | All sources
+🛠️ Troubleshooting
+Scrapling unavailable
 
+Update Scrapling:
+
+pip install scrapling --upgrade
+No results from YellowPages or Yelp
+
+Possible causes:
+
+temporary blocking
+rate limiting
+proxy failures
+
+Solutions:
+
+retry after 60 seconds
+enable proxy rotation
+reduce concurrency
+Search takes too long
+
+Suggestions:
+
+reduce search radius
+lower per-source limits
+disable enrichment
+DuckDuckGo rate limiting
+
+The app includes:
+
+built-in DDG limiter
+automatic cooldown pauses
+concurrency restrictions
+
+Check logs for:
+
+[DDG] Rate limit pause
 🛡️ Legal & Ethical Use
-This tool is for legitimate business research only:
 
-Respect robots.txt and rate limits
+This tool is intended for legitimate business research only.
 
-Don't overload target servers
+Please:
 
-Use for finding contractor contact info for legitimate business purposes
-
-Comply with website Terms of Service
-
+respect website rate limits
+avoid excessive scraping
+comply with Terms of Service
+use responsibly
 🤝 Contributing
-Fork the repository
+Fork Repository
+git clone https://github.com/yourusername/contractor-finder.git
+Create Branch
+git checkout -b feature/AmazingFeature
+Commit Changes
+git commit -m "Add AmazingFeature"
+Push Changes
+git push origin feature/AmazingFeature
+Open Pull Request
 
-Create a feature branch (git checkout -b feature/AmazingFeature)
+Submit your PR through GitHub.
 
-Commit changes (git commit -m 'Add AmazingFeature')
-
-Push to branch (git push origin feature/AmazingFeature)
-
-Open a Pull Request
-
-Development Setup
-bash
-# Install development dependencies
+🧪 Development Setup
+Install Development Dependencies
 pip install black pylint pytest
-
-# Run tests
+Run Tests
 pytest tests/
-
-# Format code
+Format Code
 black contractor_gui.py
 📝 Release Notes
-v3.0 (Current)
-Async enrichment (15x parallel)
-
-Yelp StealthySession (bypasses anti-bot)
-
+v3.0
+Async enrichment pipeline
+Yelp stealth scraping
 Role account detection
-
-Search history dropdown
-
+Search history support
 Persistent async event loop
-
-Structured logging to file
-
-v2.x
+Structured file logging
 SQLite caching
-
-Proxy pool with health scoring
-
+Improved proxy pool
+v2.x
 Google Maps integration
-
 Email MX verification
-
+Proxy rotation
+Website enrichment
 v1.x
-Basic scraping (OSM + YellowPages)
-
+Basic OSM + YellowPages scraping
 CSV/TXT export
-
 📄 License
-MIT License - see LICENSE file for details
+
+MIT License
+
+See the LICENSE file for more details.
 
 🙏 Acknowledgments
-Scrapling - Stealth browser automation
+Scrapling
+OpenStreetMap
+Overpass API
+Nominatim
+PySide6
+aiohttp
+dnspython
+📧 Support
 
-Nominatim - Geocoding API
+For bug reports, feature requests, or improvements:
 
-Overpass API - OSM data queries
-
-PySide6 - Qt GUI framework
-
-📧 Contact
-For bugs or feature requests, please open a GitHub issu
+Open an issue on GitHub.
