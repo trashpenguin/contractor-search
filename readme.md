@@ -10,30 +10,33 @@ Professional desktop application for finding contractors (HVAC, Electrical, Exca
 
 ## ✨ Features
 
-- Multi-source contractor scraping
-- Async enrichment pipeline
-- SQLite caching system
-- Smart proxy rotation with health scoring
-- Email extraction & validation
-- Website discovery & scraping
-- Google Sheets export support
-- Dark-themed desktop UI
-- Search history support
-- Multi-trade searching
-- Structured logging
-- High-speed async processing
+- Multi-source contractor scraping (OSM, YellowPages, Yelp, Google Maps)
+- Async enrichment pipeline (batches of 15 concurrent scrapes)
+- Smart deduplication with data merging across sources
+- SQLite caching with TTL-based expiry (7-day contacts, 1-day DDG)
+- Elite proxy pool with health scoring, sticky sessions & circuit breakers
+- Domain guessing engine (no rate limits, faster than DDG)
+- Email extraction & MX-based validation
+- Cloudflare email obfuscation decode
+- Role account detection (info@, contact@, etc.)
+- Website discovery with multi-page contact scraping
+- Google Sheets export support (via CSV import)
+- Dark-themed desktop UI with live stats & filtering
+- Search history support (last 20 locations)
+- Multi-trade searching with parallel enrichment
+- Structured logging with rotating file handler
 
 ---
 
 ## 🔍 Supported Sources
 
-| Source | Purpose |
-|---|---|
-| OpenStreetMap (OSM) | Business discovery |
-| YellowPages | Contractor listings |
-| Yelp | Business reviews & contact discovery |
-| Google Maps | Additional contractor discovery |
-| DuckDuckGo | Website & email enrichment |
+| Source | Purpose | Method |
+|---|---|---|
+| OpenStreetMap (OSM) | Business discovery via Overpass API + Nominatim fallback | HTTP POST |
+| YellowPages | Contractor listings via stealth browser | StealthySession |
+| Yelp | Business reviews & contact discovery | StealthySession |
+| Google Maps | Additional contractor discovery | StealthySession |
+| DuckDuckGo | Website & email enrichment fallback | HTML endpoint (rate-limited) |
 
 ---
 
@@ -48,13 +51,21 @@ Professional desktop application for finding contractors (HVAC, Electrical, Exca
 Install required packages:
 
 ```bash
-pip install PySide6 scrapling aiohttp dnspython aiosqlite
+pip install -r requirements.txt
 ```
 
-Or install from requirements.txt:
+#### requirements.txt
 
-```bash
-pip install -r requirements.txt
+```
+scrapling         # Stealth browser automation & anti-bot handling
+browserforge      # Browser fingerprint generation
+curl_cffi         # Curl impersonation for Scrapling
+playwright        # Browser automation backend
+patchright        # Patched Playwright variant
+PySide6           # Qt6 desktop UI framework
+dnspython         # DNS/MX record resolution
+msgspec           # Fast serialization
+aiohttp           # Async HTTP with connection pooling
 ```
 
 ## 🚀 Installation
@@ -72,11 +83,20 @@ cd contractor-finder
 pip install -r requirements.txt
 ```
 
+### Install Browser Backends
+
+```bash
+python -m playwright install chromium
+python -m patchright install chromium
+```
+
 ### Run Application
 
 ```bash
 python contractor_gui.py
 ```
+
+**Windows:** Double-click `launch_windows.bat` for auto-setup and launch.
 
 ## 📦 Build Executable
 
@@ -103,12 +123,23 @@ dist/
 ### Basic Search
 
 1. Enter a US city, state, or ZIP code
-2. Select one or more trades
-3. Select data sources
+2. Select one or more trades (HVAC, Electrical, Excavating)
+3. Select data sources (OSM, YellowPages, Yelp, Google Maps)
 4. Configure search radius
-5. Click Search
+5. Enable/disable website enrichment (recommended: enabled)
+6. Click **Search Contractors ↗**
 
-Results will appear in the results table.
+Results appear live in the table with real-time progress tracking.
+
+### Post-Search Actions
+
+- **✉ Verify Emails** — Validate all discovered emails via MX record check
+- **📊 Export → Google Sheets** — Export to CSV and open Google Sheets
+- **Export CSV** — Save results as CSV file
+- **Export TXT** — Save formatted text report grouped by trade
+- **Filter** — Filter results by trade, source, or company name
+
+---
 
 ## ⚙️ Search Parameters
 
@@ -117,86 +148,145 @@ Results will appear in the results table.
 | Location | US city/state or ZIP | Warren, MI |
 | Radius | Search radius | 40 miles |
 | Per Trade/Source | Max results per source | 30 |
-| Enrichment | Website/email extraction | Enabled |
+| Enrichment | Scrape websites for phone+email | Enabled |
 
 ## 📊 Result Columns
 
 | Column | Description |
 |---|---|
-| Trade | Contractor category |
-| Source | Data source |
+| Trade | Contractor category (HVAC/Electrical/Excavating) |
+| Source | Data source (OSM/YellowPages/Yelp/Google) |
 | Company Name | Business name |
-| Phone | Normalized phone |
+| Phone | Normalized (XXX) XXX-XXXX format |
 | Email | Extracted or guessed email |
-| Email Status | Validation status |
+| Email Status | ✅ Valid / ❌ Invalid / ❓ Unknown |
 | Website | Business website |
 | Address | Business address |
-| Note | Additional warnings/info |
+| Note | Role account warning or additional info |
+
+---
 
 ## 🏗️ Application Architecture
+
+### Scrapling Strategy
+
+The app uses three Scrapling fetcher types (per Scrapling docs v0.4+):
+
+| Fetcher | Purpose |
+|---|---|
+| `FetcherSession` / `Fetcher` | Fast HTTP with browser fingerprint — DDG search, contractor websites |
+| `StealthySession` | Persistent stealth browser (one browser, many pages) — YellowPages, Yelp, Google Maps |
+| `StealthyFetcher` | Single-shot stealth fetch — fallback when session not available |
 
 ### Data Flow
 
 ```
 Search Location
       ↓
-Geocode via Nominatim
+Geocode via Nominatim (lat/lon)
       ↓
 Parallel Multi-Source Scraping
- ├── OSM
- ├── YellowPages
- ├── Yelp
- └── Google Maps
+ ├── OSM: Overpass API + Nominatim fallback
+ ├── YellowPages: StealthySession (multi-page, Cloudflare bypass)
+ ├── Yelp: StealthySession (biz_redir website extraction)
+ └── Google Maps: StealthySession (role='feed' + scroll)
       ↓
-Deduplication
+Smart Deduplication
+ ├── Name similarity (fuzzy + suffix stripping)
+ ├── Phone number comparison (10-digit normalized)
+ └── Domain comparison (root domain)
       ↓
-Async Enrichment Pipeline
- ├── Domain Guessing
- ├── DDG Fallback Search
- ├── Website Scraping
- └── Contact Extraction
+Async Enrichment Pipeline (batches of 15)
+ ├── Step 1: Domain guessing (common patterns, zero rate limiting)
+ ├── Step 2: DDG fallback (if domain guess fails, rate-limited)
+ ├── Step 3: Website scraping (homepage + up to 6 contact/about subpages)
+ │   ├── JSON-LD schema.org parsing (most reliable)
+ │   ├── mailto/tel link extraction
+ │   ├── Meta tag scanning
+ │   ├── Structured data attributes
+ │   ├── Footer/contact section scan
+ │   ├── Cloudflare email obfuscation decode
+ │   └── Obfuscation pattern matching ([at], AT, (at))
+ └── Step 4: Email guessing from MX-verified domain
       ↓
-Email Validation
+MX Record Verification (async, non-blocking)
       ↓
 Display & Export
 ```
 
 ## 🔧 Core Components
 
-### Scrapling
+### Scrapling Fetchers
 
-Stealth browser automation & anti-bot handling.
+- **FetcherSession** — Fast HTTP with browser fingerprint (DDG search, contractor websites)
+- **StealthySession** — Persistent headless browser, multi-page (YP, Yelp, Google Maps — 1 browser, many pages)
+- **StealthyFetcher** — Single-shot stealth fetch (fallback)
 
-### aiohttp
+### Proxy Manager (Elite Pool)
 
-Async HTTP requests with connection pooling.
+Multi-source proxy aggregation (4 sources, 300 max raw candidates):
 
-### SQLite
-
-Persistent caching system for:
-
-- contacts
-- DDG results
-- search history
-- websites
-
-### Proxy Manager
-
-Features:
-
-- automatic proxy testing
-- health scoring
-- sticky sessions
-- retry handling
+- **Health scoring** — Each proxy starts at score 5; drops on failure, removed at ≤ 0
+- **Circuit breakers** — TLS/CONNECT/certificate/403 errors = immediate permanent ban
+- **Sticky sessions** — Each proxy handles up to 10 requests before rotating
+- **Cooldown** — Timeout errors trigger 60s cooldown instead of immediate removal
+- **Traffic routing** — OSM/Nominatim bypass proxy entirely; company websites use direct connection
+- **Concurrent testing** — 30-thread HTTPS/HTTP validation pool
 
 ### Async Enrichment
 
-Parallel enrichment pipeline:
+Parallel enrichment pipeline with semaphore-based domain concurrency control:
 
-- website scraping
-- email extraction
-- contact discovery
-- MX verification
+- **Domain guessing** — Zero rate limiting, 9 common patterns (clean.com, cleanhvac.com, etc.)
+- **DDG search** — HTML endpoint, rate-limited to 12 requests/min, 24h cache
+- **Website scraping** — Shared `aiohttp.ClientSession`, up to 6 subpages per site
+- **Email guessing** — 7 common prefixes (info, contact, service, office, admin, support, hello) with MX pre-check
+- **Cache** — SQLite with 7-day TTL on contacts, 1-day TTL on DDG results
+
+### Contact Extraction (8 Strategies)
+
+| # | Strategy | Priority |
+|---|---|---|
+| 1 | JSON-LD / schema.org | Highest (most reliable) |
+| 2 | Scrapling CSS: mailto/tel links | High |
+| 3 | Meta tags (email/phone) | Medium |
+| 4 | Structured data attributes (itemprop) | Medium |
+| 5 | Footer/contact section regex scan | Medium |
+| 6 | Cloudflare data-cfemail decode | Medium |
+| 7 | Obfuscation patterns ([at], AT, (at), @) | Low |
+| 8 | Full text regex fallback | Lowest |
+
+### SQLite Cache
+
+Persistent caching system with:
+
+- **contacts** table — Keyed by domain, stores email/phone/website, 7-day TTL
+- **ddg_cache** table — Keyed by MD5 query hash, stores JSON results, 1-day TTL
+- **Cleanup** — Automatic purge of expired entries
+- **Thread-safe** — Threading.Lock on all operations
+
+### Smart Deduplication
+
+Merges duplicate contractor records across sources:
+
+- **Name comparison** — Fuzzy matching with suffix stripping (LLC, Inc, Co, services, etc.)
+- **Phone comparison** — 10-digit normalized phone matching
+- **Domain comparison** — Root domain comparison
+- **Data merging** — Keeps the best record, fills in missing fields from duplicates
+- **Sorting** — Records with most data (phone+email+website) are kept as canonical
+
+### Email Verification
+
+| Check | Description |
+|---|---|
+| Syntax | RFC-compliant regex validation |
+| Filter | Rejects spam/CDN/tracking patterns (70+ blacklisted patterns) |
+| MX record | DNS MX lookup — domain accepts email |
+| Fallback A record | If no MX but A record exists → "unknown" |
+
+**Note:** SMTP RCPT TO has been removed (unreliable in 2026 due to tarpitting, greylisting, catch-all mailboxes).
+
+---
 
 ## 💾 Cache Locations
 
@@ -232,18 +322,20 @@ $env:NO_PROXY=1
 
 ## 🔨 Modifying Trade Keywords
 
-Edit the `TRADE_KW` dictionary:
+Edit the `TRADE_KW` dictionary in `contractor_gui.py`:
 
 ```python
 TRADE_KW = {
     "HVAC": {
-        "osm": ["heating", "hvac", "furnace"],
-        "yp": "hvac+contractor",
+        "osm": ["heating", "hvac", "furnace", "cooling", "air conditioning"],
+        "yp": "hvac+heating+cooling+contractor",
         "google": "HVAC contractor",
         "yelp": "hvac"
     }
 }
 ```
+
+Each trade has separate keyword sets per source (OSM, YellowPages, Google, Yelp).
 
 ## 📈 Performance Benchmarks
 
@@ -271,6 +363,12 @@ Logs are stored at:
 ~/.contractor_finder.log
 ```
 
+Log features:
+- **RotatingFileHandler** — 5MB max, 3 backup files
+- **Structured format** — `YYYY-MM-DD HH:MM:SS [LEVEL] message`
+- **Console output** — INFO level and above (timestamps only)
+- **File output** — DEBUG level and above (full detail)
+
 ### View Logs
 
 **Linux/macOS**
@@ -295,24 +393,30 @@ Update Scrapling:
 pip install scrapling --upgrade
 ```
 
+### Missing browser engines
+
+Install Playwright and Patchright browsers:
+
+```bash
+python -m playwright install chromium
+python -m patchright install chromium
+```
+
 ### No results from YellowPages or Yelp
 
 **Possible causes:**
-
-- temporary blocking
+- temporary blocking by Cloudflare
 - rate limiting
 - proxy failures
 
 **Solutions:**
-
-- retry after 60 seconds
-- enable proxy rotation
-- reduce concurrency
+- retry after 60 seconds (YP auto-retries 3x on Cloudflare)
+- check logs for `[YP] Cloudflare` or `[Yelp] Empty/blocked`
+- reduce concurrency / wait between searches
 
 ### Search takes too long
 
 **Suggestions:**
-
 - reduce search radius
 - lower per-source limits
 - disable enrichment
@@ -320,23 +424,31 @@ pip install scrapling --upgrade
 ### DuckDuckGo rate limiting
 
 The app includes:
-
-- built-in DDG limiter
-- automatic cooldown pauses
-- concurrency restrictions
+- built-in DDG limiter (12 requests/min, 1.5s minimum gap)
+- automatic 20s backoff on 202 responses
+- 24-hour cache to avoid redundant queries
 
 Check logs for:
 
 ```
 [DDG] Rate limit pause
+[DDG] Rate-limited (short response)
 ```
+
+### Proxy pool empty
+
+Check logs for:
+```
+[Proxy] No working proxies — direct connection only
+```
+
+If no proxies are available, the app falls back to direct connections (some sources may block).
 
 ## 🛡️ Legal & Ethical Use
 
 This tool is intended for legitimate business research only.
 
 Please:
-
 - respect website rate limits
 - avoid excessive scraping
 - comply with Terms of Service
@@ -394,16 +506,25 @@ black contractor_gui.py
 
 ## 📝 Release Notes
 
-### v3.0
+### v3.1 — Current
 
-- Async enrichment pipeline
-- Yelp stealth scraping
-- Role account detection
-- Search history support
-- Persistent async event loop
-- Structured file logging
-- SQLite caching
-- Improved proxy pool
+- Async enrichment pipeline (batches of 15 concurrent scrapes)
+- StealthySession persistent browser for YP, Yelp, Google Maps
+- Elite proxy pool with health scoring + circuit breakers + sticky sessions
+- Traffic-aware proxy routing (OSM bypass, company sites direct)
+- Cloudflare email obfuscation decode (data-cfemail)
+- Role account detection (info@, contact@, service@)
+- Search history support (last 20 locations)
+- Persistent async event loop (no Windows loop issues)
+- Structured logging with rotating file handler
+- SQLite caching with 7-day / 1-day TTL
+- Multi-strategy contact extraction (8 strategies)
+- Domain guessing engine (no rate limits)
+- Email MX verification (SMTP removed)
+- Nominatim fallback for OSM business discovery
+- 70+ blacklisted email patterns (spam/CDN/tracking)
+- Smart dedup with name/phone/domain merging
+- Smart obfuscation pattern matching ([at], AT, (at))
 
 ### v2.x
 
@@ -425,13 +546,13 @@ See the LICENSE file for more details.
 
 ## 🙏 Acknowledgments
 
-- Scrapling
-- OpenStreetMap
-- Overpass API
-- Nominatim
-- PySide6
-- aiohttp
-- dnspython
+- Scrapling — stealth browser automation
+- OpenStreetMap — Overpass API & Nominatim
+- PySide6 — Qt desktop UI framework
+- aiohttp — async HTTP client
+- dnspython — DNS/MX resolution
+- Playwright & Patchright — browser automation backends
+- browserforge — browser fingerprint generation
 
 ## 📧 Support
 
