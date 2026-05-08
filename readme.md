@@ -8,6 +8,37 @@ Professional desktop application for finding contractors (HVAC, Electrical, Exca
 
 ---
 
+## 📖 About
+
+<p align="center">
+  <strong>Multi-source contractor discovery & enrichment tool for HVAC, Electrical, and Excavating businesses across the USA.</strong>
+</p>
+
+**Contractor Finder** is a PySide6 desktop application that solves the problem of finding qualified trade contractors in any US location. Instead of manually searching multiple directories and scraping websites for contact information, this tool automates the entire workflow:
+
+1. **Discover** — Searches OpenStreetMap, YellowPages, Yelp, and Google Maps simultaneously
+2. **Enrich** — Finds and scrapes each contractor's website for phone numbers and emails
+3. **Verify** — Validates emails via MX record checks and detects role accounts
+4. **Export** — Save results as CSV, TXT, or import into Google Sheets
+
+Built with Scrapling's stealth browser automation, an elite proxy pool with health scoring, and a fully async enrichment pipeline that processes up to 15 websites concurrently. All data is cached in SQLite to avoid redundant lookups.
+
+| | | |
+|---|---|---|
+| **Repository** | [github.com/trashpenguin/contractor-search](https://github.com/trashpenguin/contractor-search) | |
+| **Topics** | `contractor-search` `hvac` `electrical` `excavating` `web-scraping` `data-enrichment` `pyside6` `scrapling` `async-pipeline` `proxy-rotation` | |
+
+---
+
+### Key Use Cases
+
+- 🏢 **Sales teams** — Build targeted lists of HVAC, electrical, and excavating contractors
+- 📊 **Market research** — Analyze contractor density and contactability by region
+- 🔍 **Lead generation** — Discover companies without cold-calling directories
+- 📋 **Competitive analysis** — Compare contractor presence across sources
+
+---
+
 ## ✨ Features
 
 - Multi-source contractor scraping (OSM, YellowPages, Yelp, Google Maps)
