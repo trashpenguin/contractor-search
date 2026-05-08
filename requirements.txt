@@ -1,4 +1,9 @@
 scrapling
 browserforge
 curl_cffi
+playwright
+patchright
 PySide6
+dnspython
+msgspec
+aiohttp
