@@ -7,6 +7,7 @@ from urllib.parse import quote_plus, unquote, urlparse, parse_qs
 from constants import TRADE_KW, PHONE_RE, SCRAPE_SKIP
 from compat import HAS_SCRAPLING, StealthySession, Adaptor
 from cache import CACHE
+from proxy import PROXY_MGR
 from extractor import extract_contacts, _parse_phone
 from models import Contractor
 
@@ -273,10 +274,15 @@ def scrape_yelp(trade: str, location: str, limit: int) -> list[Contractor]:
     out: list[Contractor] = []
 
     try:
-        with StealthySession(headless=True, network_idle=True,
-                             disable_resources=False) as session:
+        proxy_url = PROXY_MGR.get() if PROXY_MGR.ready else None
+        session_kwargs: dict = {"headless": True, "network_idle": True, "disable_resources": False}
+        if proxy_url:
+            session_kwargs["proxy"] = proxy_url
+
+        with StealthySession(**session_kwargs) as session:
 
             # ── Pass 1: collect business list ─────────────────────────────────
+            blocked = False
             for offset in range(0, min(limit, 90), 10):
                 if len(raw_businesses) >= limit:
                     break
@@ -285,16 +291,22 @@ def scrape_yelp(trade: str, location: str, limit: int) -> list[Contractor]:
                     f"?find_desc={term}&find_loc={loc}&start={offset}"
                 )
                 try:
-                    resp = session.fetch(search_url, wait=5000)
-                    html = (resp.body or b"")
+                    resp   = session.fetch(search_url, wait=5000)
+                    status = getattr(resp, "status", 200) or 200
+                    html   = (resp.body or b"")
                     if isinstance(html, bytes):
                         html = html.decode("utf-8", errors="ignore")
+                    if status in (403, 429):
+                        logger.warning(f"[Yelp] HTTP {status} at offset {offset} — blocked")
+                        blocked = True
+                        break
                 except Exception as e:
                     logger.warning(f"[Yelp] search offset {offset}: {type(e).__name__}")
                     break
 
                 if not html or len(html) < 500:
                     logger.warning(f"[Yelp] Empty/blocked at offset {offset}")
+                    blocked = True
                     break
 
                 # __NEXT_DATA__ first, CSS fallback
@@ -315,6 +327,24 @@ def scrape_yelp(trade: str, location: str, limit: int) -> list[Contractor]:
                 if len(batch) < 5:
                     break   # last page
                 time.sleep(2.0)
+
+            # ── DDG fallback: find Yelp biz URLs when search page is blocked ────
+            if blocked and not raw_businesses:
+                logger.info("[Yelp] Search blocked — falling back to DDG for Yelp biz URLs")
+                from scrapers.ddg import ddg_search
+                kw       = TRADE_KW[trade]["yelp"]
+                q        = quote_plus(f"site:yelp.com/biz {kw} {city_raw} {state}")
+                seen_ddg: set[str] = set()
+                for _, biz_url, _ in ddg_search(q, pages=3):
+                    if "yelp.com/biz/" not in biz_url or biz_url in seen_ddg:
+                        continue
+                    seen_ddg.add(biz_url)
+                    slug = biz_url.split("/biz/")[-1].split("?")[0]
+                    name = slug.replace("-", " ").title()
+                    raw_businesses.append({"name": name, "biz_url": biz_url,
+                                           "phone": "", "address": ""})
+                if raw_businesses:
+                    logger.info(f"[Yelp] DDG fallback: {len(raw_businesses)} Yelp URLs found")
 
             # ── Pass 2: visit each biz page for phone + website ───────────────
             seen_names: set[str] = set()

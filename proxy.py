@@ -153,8 +153,8 @@ class ProxyManager:
                         entry.score = -99
                         logger.info(f"[Proxy] Circuit broken: {proxy[7:30]}")
                     elif is_timeout:
-                        entry.score -= 2
-                        entry._cooldown_until = time.time() + 60
+                        entry.score = -99   # one timeout = dead for free proxies
+                        logger.info(f"[Proxy] Circuit broken (timeout): {proxy[7:30]}")
                     elif success:
                         entry.score = min(entry.score + 1, 5)
                         if hasattr(entry, "_cooldown_until"):
