@@ -333,16 +333,26 @@ def scrape_yelp(trade: str, location: str, limit: int) -> list[Contractor]:
                 logger.info("[Yelp] Search blocked — falling back to DDG for Yelp biz URLs")
                 from scrapers.ddg import ddg_search
                 kw       = TRADE_KW[trade]["yelp"]
-                q        = quote_plus(f"site:yelp.com/biz {kw} {city_raw} {state}")
                 seen_ddg: set[str] = set()
-                for _, biz_url, _ in ddg_search(q, pages=3):
-                    if "yelp.com/biz/" not in biz_url or biz_url in seen_ddg:
-                        continue
-                    seen_ddg.add(biz_url)
-                    slug = biz_url.split("/biz/")[-1].split("?")[0]
-                    name = slug.replace("-", " ").title()
-                    raw_businesses.append({"name": name, "biz_url": biz_url,
-                                           "phone": "", "address": ""})
+                queries  = [
+                    quote_plus(f"site:yelp.com/biz {kw} {city_raw} {state}"),
+                    quote_plus(f'yelp.com "{kw}" "{city_raw}" contractor'),
+                ]
+                for q in queries:
+                    if len(raw_businesses) >= limit:
+                        break
+                    for _, biz_url, _ in ddg_search(q, pages=2):
+                        if "yelp.com/biz/" not in biz_url or biz_url in seen_ddg:
+                            continue
+                        seen_ddg.add(biz_url)
+                        slug = biz_url.split("/biz/")[-1].split("?")[0]
+                        # slug: "mr-furnace-heating-and-cooling-warren" → strip city suffix
+                        name = re.sub(
+                            rf"-{re.escape(city_raw.lower().replace(' ', '-'))}$",
+                            "", slug, flags=re.I
+                        ).replace("-", " ").title()
+                        raw_businesses.append({"name": name, "biz_url": biz_url,
+                                               "phone": "", "address": ""})
                 if raw_businesses:
                     logger.info(f"[Yelp] DDG fallback: {len(raw_businesses)} Yelp URLs found")
 

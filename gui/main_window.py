@@ -15,7 +15,6 @@ from PySide6.QtWidgets import (
 from compat import HAS_SCRAPLING, HAS_AIOHTTP, HAS_DNS
 from constants import TRADE_COLORS, SOURCE_COLORS
 from cache import SEARCH_HISTORY
-from proxy import PROXY_MGR
 from extractor import email_role_warning
 from models import Contractor
 from workers import SearchWorker, VerifyWorker
@@ -94,7 +93,7 @@ class MainWindow(QMainWindow):
         pc.addWidget(self._lbl("Per Trade/Source"))
         self.per = QComboBox()
         self.per.setFixedHeight(34)
-        for n in ["10", "20", "30", "40", "50"]:
+        for n in ["10", "20", "30", "50", "75", "100"]:
             self.per.addItem(n)
         self.per.setCurrentIndex(2)
         pc.addWidget(self.per)
@@ -252,8 +251,6 @@ class MainWindow(QMainWindow):
         for h in _hist:
             self.loc.addItem(h)
         self.loc.setCurrentText(current)
-
-        PROXY_MGR.load_async()
 
         self.worker = SearchWorker(
             loc, trades, int(self.per.currentText()),

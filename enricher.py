@@ -281,7 +281,8 @@ async def enrich_batch_async(contractors: list[Contractor], city_hint: str) -> N
                                        "admin", "support", "hello"]:
                             candidate = f"{prefix}@{domain}"
                             if _ok_email(candidate):
-                                c.email = candidate
+                                c.email        = candidate
+                                c.email_status = "guessed"
                                 break
 
     async with aiohttp.ClientSession(

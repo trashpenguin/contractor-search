@@ -37,6 +37,21 @@ def scrape_google(trade: str, location: str, limit: int) -> list[Contractor]:
             if not html:
                 return out
 
+            # Scroll the feed panel to trigger lazy-loading of more results.
+            # Google Maps uses IntersectionObserver so items only load when visible.
+            try:
+                _pg = getattr(session, "_page", None) or getattr(session, "page", None)
+                if _pg:
+                    for _ in range(5):
+                        _pg.evaluate(
+                            "document.querySelector('[role=\"feed\"]')"
+                            "?.scrollBy(0, 2500)"
+                        )
+                        _pg.wait_for_timeout(1200)
+                    html = _pg.content()
+            except Exception:
+                pass  # use initial html if scroll is unsupported
+
             page = Adaptor(html)
 
             # Strategy 1: div[role='feed']

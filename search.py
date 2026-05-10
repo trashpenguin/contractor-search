@@ -98,9 +98,9 @@ def run_search(
                         loop.run_until_complete(enrich_batch_async(batch, city_hint))
                     except Exception as e:
                         logger.error(f"[Async] batch error: {e}")
-                        _sync_enrich(batch, city_hint)
+                        _sync_enrich(batch, city_hint, location)
                 else:
-                    _sync_enrich(batch, city_hint)
+                    _sync_enrich(batch, city_hint, location)
 
         for c in collected:
             if stop_ev.is_set():
@@ -110,11 +110,12 @@ def run_search(
     done_cb(True, "")
 
 
-def _sync_enrich(batch: list[Contractor], city_hint: str):
+def _sync_enrich(batch: list[Contractor], city_hint: str, location: str = ""):
     """Sync fallback enrichment when aiohttp is unavailable or async fails."""
+    loc_hint = location or city_hint
     for c in batch:
         if not c.website and c.name:
-            q = quote_plus(f'"{c.name}" {city_hint} Michigan contractor')
+            q = quote_plus(f'"{c.name}" {loc_hint} contractor')
             for _, url, _ in ddg_search(q, pages=1):
                 if url.startswith("http") and not any(d in url for d in SKIP_DOMAINS):
                     c.website = url

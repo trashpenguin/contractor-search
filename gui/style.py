@@ -38,5 +38,6 @@ QTextEdit{background:#1a1d27;border:1px solid #2a2d3e;border-radius:6px;color:#e
 COLS = ["Trade", "Source", "Company Name", "Phone", "Email",
         "Email Status", "Website", "Address", "Note"]
 
-VERIFY_COLORS = {"valid": "#10b981", "invalid": "#ef4444", "unknown": "#94a3b8", "": "#94a3b8"}
-VERIFY_ICONS  = {"valid": "✅", "invalid": "❌", "unknown": "❓", "": ""}
+VERIFY_COLORS = {"valid": "#10b981", "invalid": "#ef4444", "unknown": "#94a3b8",
+                 "guessed": "#f59e0b", "": "#94a3b8"}
+VERIFY_ICONS  = {"valid": "✅", "invalid": "❌", "unknown": "❓", "guessed": "~", "": ""}
