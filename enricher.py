@@ -175,7 +175,8 @@ async def async_scrape_website(url: str, session, timeout) -> tuple[str, str]:
 
 
 async def enrich_batch_async(contractors: list[Contractor], city_hint: str,
-                             location: str = "") -> None:
+                             location: str = "",
+                             _ddg_state: list | None = None) -> None:
     """
     Async parallel enrichment using ONE shared aiohttp.ClientSession.
     Domain-specific semaphores prevent hammering any single target.
@@ -235,8 +236,10 @@ async def enrich_batch_async(contractors: list[Contractor], city_hint: str,
         return ""
 
     loc_hint  = location or city_hint
-    ddg_count = [0]   # mutable counter shared across coroutines (asyncio = single-thread)
-    DDG_CAP   = 8     # max DDG website lookups per batch to avoid rate-limiting
+    # Counter is shared across all batch calls for the same trade (passed in from
+    # search.py) so the 8-call cap is per-trade, not per-15-contractor-batch.
+    ddg_count = _ddg_state if _ddg_state is not None else [0]
+    DDG_CAP   = 8     # max DDG website lookups per trade to avoid rate-limiting
 
     async def enrich_one(c: Contractor, session):
         async with _get_sem(c.website or ""):

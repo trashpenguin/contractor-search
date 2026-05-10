@@ -82,8 +82,9 @@ def run_search(
                     c.email = decoded
 
         if enrich and collected:
-            BATCH = 15
-            n_total = len(collected)
+            BATCH      = 15
+            n_total    = len(collected)
+            ddg_state  = [0]  # shared across all batches for this trade (cap = 8 total)
             for batch_start in range(0, n_total, BATCH):
                 if stop_ev.is_set():
                     break
@@ -97,7 +98,10 @@ def run_search(
                 if HAS_AIOHTTP:
                     try:
                         loop = get_event_loop()
-                        loop.run_until_complete(enrich_batch_async(batch, city_hint, location=location))
+                        loop.run_until_complete(
+                            enrich_batch_async(batch, city_hint, location=location,
+                                               _ddg_state=ddg_state)
+                        )
                     except Exception as e:
                         logger.error(f"[Async] batch error: {e}")
                         _sync_enrich(batch, city_hint, location)
