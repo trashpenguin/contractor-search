@@ -8,6 +8,7 @@ from constants import TRADE_KW, PHONE_RE, SCRAPE_SKIP
 from compat import HAS_SCRAPLING, StealthySession, Adaptor
 from cache import CACHE
 from proxy import PROXY_MGR
+from http_client import http_get
 from extractor import extract_contacts, _parse_phone
 from models import Contractor
 
@@ -244,17 +245,146 @@ def _extract_biz_page(html: str) -> tuple[str, str]:
 
 # ── Main scraper ──────────────────────────────────────────────────────────────
 
-def scrape_yelp(trade: str, location: str, limit: int) -> list[Contractor]:
+def _yelp_search_fetcher(term: str, loc: str, limit: int) -> list[dict]:
     """
-    Two-pass Yelp scraper:
-      Pass 1 — search results page  → __NEXT_DATA__ JSON → business list + Yelp URLs
-      Pass 2 — each /biz/<slug> page → JSON-LD          → phone + website
+    Phase 1: Try Yelp search via curl_cffi (Fetcher).
+    curl_cffi has a different TLS/JA3 fingerprint than Playwright and often
+    bypasses Yelp's bot detection where a headless browser gets 403'd.
+    """
+    results: list[dict] = []
+    for offset in range(0, min(limit, 60), 10):
+        if len(results) >= limit:
+            break
+        url  = f"https://www.yelp.com/search?find_desc={term}&find_loc={loc}&start={offset}"
+        html = http_get(url, timeout=12)
+        if not html or len(html) < 500:
+            logger.debug(f"[Yelp/curl] empty at offset {offset}")
+            break
+        batch = _parse_next_data(html)
+        if not batch:
+            logger.debug(f"[Yelp/curl] no __NEXT_DATA__ at offset {offset}")
+            break
+        results.extend(batch)
+        logger.info(f"[Yelp/curl] offset {offset}: {len(batch)} found (total {len(results)})")
+        if len(batch) < 5:
+            break
+        time.sleep(1.5)
+    return results
 
-    Email is NOT on Yelp; it comes from website scraping in the enricher.
+
+def _yelp_search_session(term: str, loc: str, limit: int) -> list[dict]:
+    """
+    Phase 2: Try Yelp search via StealthySession (full Patchright browser).
+    Used only when curl_cffi Phase 1 returned nothing.
     """
     if not HAS_SCRAPLING:
         return []
+    results: list[dict] = []
+    try:
+        proxy_url = PROXY_MGR.get() if PROXY_MGR.ready else None
+        sk: dict  = {"headless": True, "network_idle": True, "disable_resources": False}
+        if proxy_url:
+            sk["proxy"] = proxy_url
 
+        with StealthySession(**sk) as session:
+            for offset in range(0, min(limit, 60), 10):
+                if len(results) >= limit:
+                    break
+                url = (f"https://www.yelp.com/search"
+                       f"?find_desc={term}&find_loc={loc}&start={offset}")
+                try:
+                    resp   = session.fetch(url, wait=6000)
+                    status = getattr(resp, "status", 200) or 200
+                    html   = resp.body or b""
+                    if isinstance(html, bytes):
+                        html = html.decode("utf-8", errors="ignore")
+                except Exception as e:
+                    logger.warning(f"[Yelp/session] offset {offset}: {type(e).__name__}")
+                    break
+                if status in (403, 429) or not html or len(html) < 500:
+                    logger.warning(f"[Yelp/session] HTTP {status} / empty at offset {offset}")
+                    break
+                batch = _parse_next_data(html) or _parse_html_cards(html, limit)
+                if not batch:
+                    logger.info(f"[Yelp/session] no results at offset {offset}")
+                    break
+                results.extend(batch)
+                logger.info(
+                    f"[Yelp/session] offset {offset}: {len(batch)} found "
+                    f"(total {len(results)})"
+                )
+                if len(batch) < 5:
+                    break
+                time.sleep(2.0)
+    except Exception as e:
+        logger.error(f"[Yelp/session] error: {type(e).__name__}: {e}")
+    return results
+
+
+def _yelp_ddg_fallback(kw: str, city_raw: str, state: str, limit: int) -> list[dict]:
+    """
+    Phase 3: DDG fallback when both curl_cffi and StealthySession are blocked.
+
+    Two strategies:
+      A) Natural-language search → filter results for yelp.com/biz/ URLs
+      B) For any Yelp search page URL DDG returns, try fetching it with
+         curl_cffi (different fingerprint may work) and parse __NEXT_DATA__
+    """
+    from scrapers.ddg import ddg_search
+    results:  list[dict] = []
+    seen_biz: set[str]   = set()
+
+    queries = [
+        quote_plus(f"{kw} contractor {city_raw} {state}"),
+        quote_plus(f"best {kw} {city_raw} {state} reviews"),
+    ]
+
+    for q in queries:
+        if len(results) >= limit:
+            break
+        for _, url, _ in ddg_search(q, pages=2):
+            if len(results) >= limit:
+                break
+            # Strategy A: individual biz page URL
+            if "yelp.com/biz/" in url and url not in seen_biz:
+                seen_biz.add(url)
+                slug = url.split("/biz/")[-1].split("?")[0]
+                name = re.sub(
+                    rf"-{re.escape(city_raw.lower().replace(' ', '-'))}$",
+                    "", slug, flags=re.I,
+                ).replace("-", " ").title()
+                results.append({"name": name, "biz_url": url, "phone": "", "address": ""})
+                continue
+            # Strategy B: Yelp search page URL — try curl_cffi on it
+            if "yelp.com/search" in url and "find_desc" in url:
+                html = http_get(url, timeout=10)
+                if not html or len(html) < 500:
+                    continue
+                batch = _parse_next_data(html)
+                for item in batch:
+                    if item.get("biz_url") and item["biz_url"] not in seen_biz:
+                        seen_biz.add(item["biz_url"])
+                        results.append(item)
+                if batch:
+                    logger.info(f"[Yelp/DDG-B] fetched Yelp search via curl: {len(batch)} found")
+                    break  # found results from strategy B, skip remaining queries
+
+    if results:
+        logger.info(f"[Yelp/DDG] fallback found {len(results)} Yelp entries")
+    return results
+
+
+def scrape_yelp(trade: str, location: str, limit: int) -> list[Contractor]:
+    """
+    Three-phase Yelp scraper:
+      Phase 1 — curl_cffi (Fetcher)   → __NEXT_DATA__ JSON  [fastest, different fingerprint]
+      Phase 2 — StealthySession       → __NEXT_DATA__ + CSS  [full browser, slower]
+      Phase 3 — DDG fallback          → biz URLs + Yelp search re-fetch via curl_cffi
+
+    Biz page enrichment (phone + website) always uses http_get (curl_cffi),
+    never the StealthySession — individual /biz/ pages are less aggressively
+    blocked, and http_get avoids reusing a session that Yelp already flagged.
+    """
     keyword  = TRADE_KW[trade]["yelp"]
     city_raw = location.split(",")[0].strip()
     state    = (
@@ -270,131 +400,48 @@ def scrape_yelp(trade: str, location: str, limit: int) -> list[Contractor]:
 
     term = quote_plus(keyword)
     loc  = quote_plus(f"{city_raw}, {state}")
-    raw_businesses: list[dict] = []
+
+    # ── Phase 1: curl_cffi ────────────────────────────────────────────────────
+    raw_businesses = _yelp_search_fetcher(term, loc, limit)
+
+    # ── Phase 2: StealthySession ──────────────────────────────────────────────
+    if not raw_businesses:
+        logger.info("[Yelp] curl_cffi got nothing — trying StealthySession")
+        raw_businesses = _yelp_search_session(term, loc, limit)
+
+    # ── Phase 3: DDG fallback ─────────────────────────────────────────────────
+    if not raw_businesses:
+        logger.info("[Yelp] StealthySession got nothing — trying DDG fallback")
+        raw_businesses = _yelp_ddg_fallback(keyword, city_raw, state, limit)
+
+    # ── Biz page enrichment (http_get — not the blocked session) ─────────────
     out: list[Contractor] = []
-
-    try:
-        proxy_url = PROXY_MGR.get() if PROXY_MGR.ready else None
-        session_kwargs: dict = {"headless": True, "network_idle": True, "disable_resources": False}
-        if proxy_url:
-            session_kwargs["proxy"] = proxy_url
-
-        with StealthySession(**session_kwargs) as session:
-
-            # ── Pass 1: collect business list ─────────────────────────────────
-            blocked = False
-            for offset in range(0, min(limit, 90), 10):
-                if len(raw_businesses) >= limit:
-                    break
-                search_url = (
-                    f"https://www.yelp.com/search"
-                    f"?find_desc={term}&find_loc={loc}&start={offset}"
-                )
-                try:
-                    resp   = session.fetch(search_url, wait=5000)
-                    status = getattr(resp, "status", 200) or 200
-                    html   = (resp.body or b"")
-                    if isinstance(html, bytes):
-                        html = html.decode("utf-8", errors="ignore")
-                    if status in (403, 429):
-                        logger.warning(f"[Yelp] HTTP {status} at offset {offset} — blocked")
-                        blocked = True
-                        break
-                except Exception as e:
-                    logger.warning(f"[Yelp] search offset {offset}: {type(e).__name__}")
-                    break
-
-                if not html or len(html) < 500:
-                    logger.warning(f"[Yelp] Empty/blocked at offset {offset}")
-                    blocked = True
-                    break
-
-                # __NEXT_DATA__ first, CSS fallback
-                batch = _parse_next_data(html)
-                if not batch:
-                    logger.debug(f"[Yelp] __NEXT_DATA__ missed at offset {offset}, using CSS")
-                    batch = _parse_html_cards(html, limit)
-
-                if not batch:
-                    logger.info(f"[Yelp] No results at offset {offset} — stopping")
-                    break
-
-                raw_businesses.extend(batch)
-                logger.info(
-                    f"[Yelp] offset {offset}: {len(batch)} found "
-                    f"(total {len(raw_businesses)})"
-                )
-                if len(batch) < 5:
-                    break   # last page
-                time.sleep(2.0)
-
-            # ── DDG fallback: find Yelp biz URLs when search page is blocked ────
-            if blocked and not raw_businesses:
-                logger.info("[Yelp] Search blocked — falling back to DDG for Yelp biz URLs")
-                from scrapers.ddg import ddg_search
-                kw       = TRADE_KW[trade]["yelp"]
-                seen_ddg: set[str] = set()
-                queries  = [
-                    quote_plus(f"site:yelp.com/biz {kw} {city_raw} {state}"),
-                    quote_plus(f'yelp.com "{kw}" "{city_raw}" contractor'),
-                ]
-                for q in queries:
-                    if len(raw_businesses) >= limit:
-                        break
-                    for _, biz_url, _ in ddg_search(q, pages=2):
-                        if "yelp.com/biz/" not in biz_url or biz_url in seen_ddg:
-                            continue
-                        seen_ddg.add(biz_url)
-                        slug = biz_url.split("/biz/")[-1].split("?")[0]
-                        # slug: "mr-furnace-heating-and-cooling-warren" → strip city suffix
-                        name = re.sub(
-                            rf"-{re.escape(city_raw.lower().replace(' ', '-'))}$",
-                            "", slug, flags=re.I
-                        ).replace("-", " ").title()
-                        raw_businesses.append({"name": name, "biz_url": biz_url,
-                                               "phone": "", "address": ""})
-                if raw_businesses:
-                    logger.info(f"[Yelp] DDG fallback: {len(raw_businesses)} Yelp URLs found")
-
-            # ── Pass 2: visit each biz page for phone + website ───────────────
-            seen_names: set[str] = set()
-            for biz in raw_businesses[:limit]:
-                name = biz.get("name", "").strip()
-                if not name or name in seen_names:
-                    continue
-                seen_names.add(name)
-
-                phone   = biz.get("phone", "")
-                website = ""
-
-                biz_url = biz.get("biz_url", "")
-                if biz_url:
-                    try:
-                        resp = session.fetch(biz_url, wait=3000)
-                        biz_html = resp.body or b""
-                        if isinstance(biz_html, bytes):
-                            biz_html = biz_html.decode("utf-8", errors="ignore")
-                        bp, bw  = _extract_biz_page(biz_html)
-                        if not phone and bp:
-                            phone = bp
-                        if bw:
-                            website = bw
-                        logger.debug(
-                            f"[Yelp/biz] {name[:30]} → phone={bool(phone)} "
-                            f"website={bool(website)}"
-                        )
-                    except Exception as e:
-                        logger.debug(f"[Yelp/biz] {name[:30]}: {type(e).__name__}")
-                    time.sleep(1.0)   # polite delay between biz page fetches
-
-                out.append(Contractor(
-                    trade=trade, name=name, phone=phone,
-                    website=website, address=biz.get("address", ""),
-                    source="Yelp",
-                ))
-
-    except Exception as e:
-        logger.error(f"[Yelp] Session error: {type(e).__name__}: {e}")
+    seen_names: set[str]  = set()
+    for biz in raw_businesses[:limit]:
+        name = biz.get("name", "").strip()
+        if not name or name in seen_names:
+            continue
+        seen_names.add(name)
+        phone   = biz.get("phone", "")
+        website = ""
+        biz_url = biz.get("biz_url", "")
+        if biz_url:
+            biz_html = http_get(biz_url, timeout=8)
+            if biz_html and len(biz_html) > 500:
+                bp, bw = _extract_biz_page(biz_html)
+                if not phone and bp:
+                    phone = bp
+                if bw:
+                    website = bw
+            logger.debug(
+                f"[Yelp/biz] {name[:30]} → phone={bool(phone)} website={bool(website)}"
+            )
+            time.sleep(0.8)
+        out.append(Contractor(
+            trade=trade, name=name, phone=phone,
+            website=website, address=biz.get("address", ""),
+            source="Yelp",
+        ))
 
     out = out[:limit]
     if out:
