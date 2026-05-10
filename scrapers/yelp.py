@@ -325,52 +325,79 @@ def _yelp_ddg_fallback(kw: str, city_raw: str, state: str, limit: int) -> list[d
     """
     Phase 3: DDG fallback when both curl_cffi and StealthySession are blocked.
 
-    Two strategies:
-      A) Natural-language search → filter results for yelp.com/biz/ URLs
-      B) For any Yelp search page URL DDG returns, try fetching it with
-         curl_cffi (different fingerprint may work) and parse __NEXT_DATA__
+    Three strategies in one pass over DDG results:
+      A) yelp.com/biz/ URL  → add to biz list; Pass 2 fetches phone + website
+      B) yelp.com/* URL     → SKIP (also 403'd, proven in logs)
+      C) contractor website → use DDG title as name + URL as website directly;
+                              no Yelp biz page needed, enricher fills phone/email
     """
     from scrapers.ddg import ddg_search
-    results:  list[dict] = []
-    seen_biz: set[str]   = set()
+    from constants import SKIP_DOMAINS
+
+    results: list[dict] = []
+    seen:    set[str]   = set()
 
     queries = [
         quote_plus(f"{kw} contractor {city_raw} {state}"),
-        quote_plus(f"best {kw} {city_raw} {state} reviews"),
+        quote_plus(f"best {kw} {city_raw} {state}"),
+        quote_plus(f"{kw} {city_raw} {state} heating cooling"),
     ]
 
     for q in queries:
         if len(results) >= limit:
             break
-        for _, url, _ in ddg_search(q, pages=2):
+        for title, url, snippet in ddg_search(q, pages=2):
             if len(results) >= limit:
                 break
-            # Strategy A: individual biz page URL
-            if "yelp.com/biz/" in url and url not in seen_biz:
-                seen_biz.add(url)
+            if url in seen:
+                continue
+
+            # Strategy A: individual Yelp business page
+            if "yelp.com/biz/" in url:
+                seen.add(url)
                 slug = url.split("/biz/")[-1].split("?")[0]
                 name = re.sub(
                     rf"-{re.escape(city_raw.lower().replace(' ', '-'))}$",
                     "", slug, flags=re.I,
                 ).replace("-", " ").title()
-                results.append({"name": name, "biz_url": url, "phone": "", "address": ""})
+                results.append({"name": name, "biz_url": url,
+                                "phone": "", "address": "", "website": ""})
                 continue
-            # Strategy B: Yelp search page URL — try curl_cffi on it
-            if "yelp.com/search" in url and "find_desc" in url:
-                html = http_get(url, timeout=10)
-                if not html or len(html) < 500:
-                    continue
-                batch = _parse_next_data(html)
-                for item in batch:
-                    if item.get("biz_url") and item["biz_url"] not in seen_biz:
-                        seen_biz.add(item["biz_url"])
-                        results.append(item)
-                if batch:
-                    logger.info(f"[Yelp/DDG-B] fetched Yelp search via curl: {len(batch)} found")
-                    break  # found results from strategy B, skip remaining queries
+
+            # Strategy B: any other Yelp URL — skip, they're also 403'd
+            if "yelp.com" in url:
+                continue
+
+            # Strategy C: contractor website from DDG result
+            if not url.startswith("http"):
+                continue
+            if any(d in url for d in SKIP_DOMAINS):
+                continue
+            seen.add(url)
+            # Clean title → business name
+            name = title
+            for sep in (" - ", " | ", " – ", " — ", " :: ", " » "):
+                if sep in name:
+                    name = name.split(sep)[0]
+                    break
+            name = name.strip()
+            if not name or len(name) < 3:
+                continue
+            # Phone from snippet
+            phone = ""
+            pm = PHONE_RE.search(snippet or "")
+            if pm:
+                phone = pm.group(1)
+            results.append({"name": name, "biz_url": "",
+                            "phone": phone, "address": "", "website": url})
 
     if results:
-        logger.info(f"[Yelp/DDG] fallback found {len(results)} Yelp entries")
+        from_yelp = sum(1 for r in results if r["biz_url"])
+        from_web  = len(results) - from_yelp
+        logger.info(
+            f"[Yelp/DDG] fallback: {len(results)} total "
+            f"({from_yelp} Yelp biz pages, {from_web} contractor websites)"
+        )
     return results
 
 
@@ -423,15 +450,17 @@ def scrape_yelp(trade: str, location: str, limit: int) -> list[Contractor]:
             continue
         seen_names.add(name)
         phone   = biz.get("phone", "")
-        website = ""
+        website = biz.get("website", "")   # may already be set by DDG Strategy C
+
         biz_url = biz.get("biz_url", "")
         if biz_url:
+            # Yelp /biz/ page — fetch for phone + real website
             biz_html = http_get(biz_url, timeout=8)
             if biz_html and len(biz_html) > 500:
                 bp, bw = _extract_biz_page(biz_html)
                 if not phone and bp:
                     phone = bp
-                if bw:
+                if not website and bw:
                     website = bw
             logger.debug(
                 f"[Yelp/biz] {name[:30]} → phone={bool(phone)} website={bool(website)}"
