@@ -45,7 +45,7 @@ Built with Scrapling stealth browser automation, a rate-aware DDG pipeline, and 
 ## Supported Sources
 
 | Source | Method | Notes |
-|---|---|---|
+| --- | --- | --- |
 | OpenStreetMap | Overpass API POST + Nominatim fallback | Broadest coverage for obscure businesses |
 | YellowPages | StealthySession — multi-page with auto retry | Cloudflare 530 handled with 30s backoff |
 | Yelp | 3-phase: curl_cffi → StealthySession → DDG fallback | Phase 3 harvests contractor websites directly from DDG results |
@@ -64,7 +64,7 @@ pip install -r requirements.txt
 
 ### requirements.txt
 
-```
+```text
 scrapling        # stealth browser automation
 browserforge     # browser fingerprint generation
 curl_cffi        # curl impersonation (TLS/JA3 fingerprint bypass)
@@ -111,7 +111,7 @@ Results appear live in the table. All three trades run sequentially; the filter 
 ### Post-Search Actions
 
 | Button | Action |
-|---|---|
+| --- | --- |
 | ✉ Verify Emails | MX record check on all discovered emails |
 | 📊 Export → Google Sheets | Export CSV and open sheets.new |
 | Export CSV | Save to file |
@@ -123,7 +123,7 @@ Results appear live in the table. All three trades run sequentially; the filter 
 ## Search Parameters
 
 | Parameter | Default | Notes |
-|---|---|---|
+| --- | --- | --- |
 | Location | Warren, MI 48091 | Any US city, state, or ZIP |
 | Radius | 40 mi | OSM search radius |
 | Per Trade/Source | 30 | 10 / 20 / 30 / 50 / 75 / 100 |
@@ -135,7 +135,7 @@ Results appear live in the table. All three trades run sequentially; the filter 
 ## Result Columns
 
 | Column | Description |
-|---|---|
+| --- | --- |
 | Trade | HVAC / Electrical / Excavating |
 | Source | OSM / YellowPages / Yelp / Google |
 | Company Name | Business name |
@@ -152,7 +152,7 @@ Results appear live in the table. All three trades run sequentially; the filter 
 
 ### Module Layout
 
-```
+```text
 contractor-search/
 ├── contractor_gui.py        ← entry point (~50 lines)
 ├── models.py                ← Contractor dataclass
@@ -182,7 +182,7 @@ contractor-search/
 
 ### Data Flow
 
-```
+```text
 Search Location
       ↓
 Geocode via Nominatim (lat/lon for city-level anchor)
@@ -223,7 +223,7 @@ Display & Export
 ### Scrapling Fetcher Types
 
 | Fetcher | Used for |
-|---|---|
+| --- | --- |
 | `Fetcher` / `http_get` (curl_cffi) | DDG search, contractor websites, Yelp Phase 1 |
 | `StealthySession` | YellowPages, Yelp Phase 2, Google Maps — persistent browser context |
 | `page_action` callback | Google Maps feed scroll (10× before HTML capture) |
@@ -241,7 +241,7 @@ Opt-in (disabled by default — enable via "Use Proxy" checkbox):
 ### Email Extraction (8 Strategies)
 
 | # | Strategy |
-|---|---|
+| --- | --- |
 | 1 | JSON-LD / schema.org (highest reliability) |
 | 2 | `mailto:` / `tel:` links |
 | 3 | Meta tags (`name="email"`, `property="email"`) |
@@ -262,7 +262,7 @@ Lead-gen and aggregator sites are filtered from results and never scraped:
 ## Performance
 
 | Search | Approx Time | Approx Results |
-|---|---|---|
+| --- | --- | --- |
 | 1 trade, no enrichment | 1–2 min | ~90 |
 | 1 trade, enrichment on | 2–3 min | ~90 |
 | 3 trades, all sources, enrichment | 8–12 min | ~250–350 |
@@ -275,13 +275,14 @@ Google Maps now returns ~30 results per trade (up from ~12 before scroll was fix
 
 ## Cache Locations
 
-```
+```text
 Windows:   C:\Users\[USERNAME]\.contractor_finder_cache.db
 Linux/Mac: ~/.contractor_finder_cache.db
 ```
 
 Search history:
-```
+
+```text
 Windows:   C:\Users\[USERNAME]\.contractor_search_history.json
 Linux/Mac: ~/.contractor_search_history.json
 ```
