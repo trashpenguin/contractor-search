@@ -30,7 +30,17 @@ class ProxyManager:
         self._cur_idx = 0
         self._loaded  = False
         self._loading = False
+        self._enabled = False
         self.STICKY_LIMIT = 10
+
+    def enable(self):
+        """Enable proxy use and start building the pool (called from GUI)."""
+        self._enabled = True
+        self.load_async()
+
+    def disable(self):
+        """Disable proxy use — pool is kept in memory but ignored."""
+        self._enabled = False
 
     def load_async(self):
         if self._loading or self._loaded:
@@ -179,7 +189,7 @@ class ProxyManager:
     @property
     def ready(self) -> bool:
         with self._lock:
-            return self._loaded and any(e.score > 0 for e in self._pool)
+            return self._enabled and self._loaded and any(e.score > 0 for e in self._pool)
 
     def stats(self) -> str:
         with self._lock:

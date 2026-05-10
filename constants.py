@@ -77,9 +77,10 @@ SOURCE_COLORS = {
 }
 
 PROXY_SOURCES = [
-    "https://cdn.jsdelivr.net/gh/TheSpeedX/PROXY-List@master/http.txt",
-    "https://cdn.jsdelivr.net/gh/proxifly/free-proxy-list@main/proxies/protocols/http/data.txt",
-    "https://cdn.jsdelivr.net/gh/SoliSpirit/proxy-list@main/proxies/http.txt",
+    # proxifly — updated every 30 min, tiered quality
+    "https://raw.githubusercontent.com/proxifly/free-proxy-list/main/proxies/quality/high/data.txt",
+    "https://raw.githubusercontent.com/proxifly/free-proxy-list/main/proxies/protocols/http/data.txt",
+    # fallbacks
     "https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/http.txt",
 ]
 

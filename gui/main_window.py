@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
 from compat import HAS_SCRAPLING, HAS_AIOHTTP, HAS_DNS
 from constants import TRADE_COLORS, SOURCE_COLORS
 from cache import SEARCH_HISTORY
+from proxy import PROXY_MGR
 from extractor import email_role_warning
 from models import Contractor
 from workers import SearchWorker, VerifyWorker
@@ -125,6 +126,15 @@ class MainWindow(QMainWindow):
         self.chk_enrich = QCheckBox("Scrape websites for phone+email (recommended)")
         self.chk_enrich.setChecked(True)
         r2.addWidget(self.chk_enrich)
+        self.chk_proxy = QCheckBox("Use Proxy (proxifly)")
+        self.chk_proxy.setChecked(False)
+        self.chk_proxy.setStyleSheet("color:#94a3b8;font-size:12px;")
+        self.chk_proxy.setToolTip(
+            "Rotate free proxies from proxifly/free-proxy-list.\n"
+            "Adds ~45s startup to build the pool.\n"
+            "Helps if your IP gets rate-limited by Yelp or DDG."
+        )
+        r2.addWidget(self.chk_proxy)
         r2.addStretch()
         sl.addLayout(r2)
 
@@ -251,6 +261,11 @@ class MainWindow(QMainWindow):
         for h in _hist:
             self.loc.addItem(h)
         self.loc.setCurrentText(current)
+
+        if self.chk_proxy.isChecked():
+            PROXY_MGR.enable()
+        else:
+            PROXY_MGR.disable()
 
         self.worker = SearchWorker(
             loc, trades, int(self.per.currentText()),
