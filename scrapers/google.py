@@ -148,56 +148,29 @@ def _parse_feed(page, limit: int) -> list[dict]:
     return out
 
 
-# ── Scroll helper ─────────────────────────────────────────────────────────────
+# ── Scroll page_action ────────────────────────────────────────────────────────
 
-def _try_scroll(session, n: int = 8, wait_ms: int = 1000) -> str | None:
+def _make_scroll_action(n: int = 10, wait_ms: int = 1200):
     """
-    Attempt to scroll the Google Maps feed panel to trigger lazy-loading.
-    Tries several attribute paths to find the Playwright page handle.
-    Returns updated HTML string if successful, None if page handle unavailable.
+    Returns a page_action callback for StealthySession.fetch().
+    The callback receives the live Playwright page object and scrolls
+    the Google Maps feed panel to trigger IntersectionObserver lazy-loading.
     """
-    _pg = None
-    # Direct attributes
-    for attr in ("_page", "page", "_browser_page", "_pw_page"):
-        candidate = getattr(session, attr, None)
-        if candidate and hasattr(candidate, "evaluate"):
-            _pg = candidate
-            break
-    # One level of nesting (e.g. session._fetcher._page)
-    if not _pg:
-        for attr in ("_fetcher", "_browser", "_driver", "_context"):
-            parent = getattr(session, attr, None)
-            if not parent:
-                continue
-            for inner in ("_page", "page", "_browser_page"):
-                candidate = getattr(parent, inner, None)
-                if candidate and hasattr(candidate, "evaluate"):
-                    _pg = candidate
-                    break
-            if _pg:
-                break
-
-    if not _pg:
-        logger.debug("[Google] No Playwright page handle found — scroll skipped")
-        return None
-
-    scroll_js = (
+    _SCROLL_JS = (
         "(function(){"
         "  var f=document.querySelector('[role=\"feed\"]');"
-        "  if(f){f.scrollBy(0,2500);return 'feed';}"
-        "  window.scrollBy(0,2500); return 'window';"
+        "  if(f){f.scrollBy(0,3000);return 'feed';}"
+        "  window.scrollBy(0,3000); return 'window';"
         "})()"
     )
-    try:
-        for i in range(n):
-            _pg.evaluate(scroll_js)
-            _pg.wait_for_timeout(wait_ms)
-        html = _pg.content()
-        logger.debug(f"[Google] Scrolled {n}x, re-captured HTML ({len(html)} bytes)")
-        return html
-    except Exception as e:
-        logger.debug(f"[Google] Scroll failed: {e}")
-        return None
+
+    def _action(page):
+        for _ in range(n):
+            page.evaluate(_SCROLL_JS)
+            page.wait_for_timeout(wait_ms)
+        logger.debug(f"[Google] Scrolled {n}× via page_action")
+
+    return _action
 
 
 # ── Main scraper ──────────────────────────────────────────────────────────────
@@ -234,7 +207,11 @@ def scrape_google(trade: str, location: str, limit: int,
         with StealthySession(headless=True, network_idle=True,
                              disable_resources=False) as session:
             try:
-                resp = session.fetch(url, wait=9000)
+                resp = session.fetch(
+                    url,
+                    page_action=_make_scroll_action(n=10, wait_ms=1200),
+                    wait=2000,
+                )
                 raw  = resp.body or b""
                 html = raw.decode("utf-8", errors="ignore") if isinstance(raw, bytes) else raw
             except Exception as e:
@@ -243,11 +220,6 @@ def scrape_google(trade: str, location: str, limit: int,
 
             if not html:
                 return out
-
-            # ── Scroll to trigger IntersectionObserver lazy-loading ───────────
-            scrolled = _try_scroll(session, n=8, wait_ms=1000)
-            if scrolled:
-                html = scrolled
 
             # ── Extract from APP_INITIALIZATION_STATE JS blob ─────────────────
             app_data    = _parse_app_state(html)

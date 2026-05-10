@@ -243,8 +243,10 @@ async def enrich_batch_async(contractors: list[Contractor], city_hint: str,
                 guessed = await _guess_domain(c.name, session)
                 if guessed:
                     c.website = guessed
-            # Step 2: DDG website lookup (only if domain guess failed)
-            if not c.website and c.name:
+            # Step 2: DDG website lookup — only if no phone either, to avoid
+            # hammering DDG for the many OSM contractors that have phones but
+            # no web presence (domain guessing already covered those).
+            if not c.website and not c.phone and c.name:
                 await asyncio.sleep(0.3)
                 from scrapers.ddg import ddg_search
                 q = quote_plus(f'"{c.name}" {loc_hint} contractor')
