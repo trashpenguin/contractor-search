@@ -61,6 +61,8 @@ def run_search(
             try:
                 if src == "OSM":
                     batch = scrape_osm(trade, lat, lon, radius_m, limit)
+                elif src == "Google":
+                    batch = scrape_google(trade, location, limit, lat=lat, lon=lon)
                 else:
                     batch = SRC_FN[src](trade, location, limit)
                 collected.extend(batch)
