@@ -97,7 +97,7 @@ def run_search(
                 if HAS_AIOHTTP:
                     try:
                         loop = get_event_loop()
-                        loop.run_until_complete(enrich_batch_async(batch, city_hint))
+                        loop.run_until_complete(enrich_batch_async(batch, city_hint, location=location))
                     except Exception as e:
                         logger.error(f"[Async] batch error: {e}")
                         _sync_enrich(batch, city_hint, location)

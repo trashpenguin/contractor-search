@@ -174,7 +174,8 @@ async def async_scrape_website(url: str, session, timeout) -> tuple[str, str]:
     return email, phone
 
 
-async def enrich_batch_async(contractors: list[Contractor], city_hint: str) -> None:
+async def enrich_batch_async(contractors: list[Contractor], city_hint: str,
+                             location: str = "") -> None:
     """
     Async parallel enrichment using ONE shared aiohttp.ClientSession.
     Domain-specific semaphores prevent hammering any single target.
@@ -233,6 +234,8 @@ async def enrich_batch_async(contractors: list[Contractor], city_hint: str) -> N
                     pass
         return ""
 
+    loc_hint = location or city_hint
+
     async def enrich_one(c: Contractor, session):
         async with _get_sem(c.website or ""):
             # Step 1: domain guessing
@@ -244,7 +247,7 @@ async def enrich_batch_async(contractors: list[Contractor], city_hint: str) -> N
             if not c.website and c.name:
                 await asyncio.sleep(0.3)
                 from scrapers.ddg import ddg_search
-                q = quote_plus(f'"{c.name}" {city_hint} Michigan contractor')
+                q = quote_plus(f'"{c.name}" {loc_hint} contractor')
                 for _, url, _ in ddg_search(q, pages=1):
                     if url.startswith("http") and not any(d in url for d in SKIP_DOMAINS):
                         c.website = url
@@ -254,7 +257,9 @@ async def enrich_batch_async(contractors: list[Contractor], city_hint: str) -> N
                 cache_key      = _domain_key(c.website)
                 cached_contact = CACHE.get_contact(cache_key) if cache_key else None
                 if cached_contact:
-                    if not c.email:   c.email   = cached_contact.get("email", "")
+                    if not c.email:
+                        raw_e = cached_contact.get("email", "")
+                        c.email = _clean_email(raw_e) if raw_e else ""
                     if not c.phone:   c.phone   = cached_contact.get("phone", "")
                     if not c.website: c.website = cached_contact.get("website", "")
                 else:
@@ -408,11 +413,7 @@ def scrape_website(url: str) -> tuple[str, str]:
     Sync multi-page website scraper (fallback when aiohttp not available).
     Checks homepage + up to 4 contact/about subpages.
     """
-    if not url:
-        return "", ""
-    skip = {"yellowpages.com", "yelp.com", "google.com", "facebook.com",
-            "scheduler.netic.ai", "servicetitan.com", "localsearch.com"}
-    if any(s in url for s in skip):
+    if not url or any(s in url for s in SCRAPE_SKIP):
         return "", ""
     html = http_get(url, timeout=12)
     if not html:

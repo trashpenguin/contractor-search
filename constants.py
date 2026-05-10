@@ -36,12 +36,18 @@ SKIP_DOMAINS = {
     "yelp.com", "yellowpages.com", "bbb.org", "facebook.com", "linkedin.com",
     "google.com", "mapquest.com", "whitepages.com", "angi.com", "homeadvisor.com",
     "thumbtack.com", "angieslist.com", "nextdoor.com", "duckduckgo.com",
+    "buildzoom.com", "threebestrated.com", "todayshomeowner.com",
+    "birdeye.com", "houzz.com", "cozywise.com", "expertise.com",
+    "homeguide.com", "porch.com", "bark.com",
 }
 
 SCRAPE_SKIP = {
     "yellowpages.com", "yelp.com", "google.com", "facebook.com",
     "scheduler.netic.ai", "servicetitan.com", "localsearch.com",
     "rwg_token", "netic.ai",
+    "buildzoom.com", "threebestrated.com", "todayshomeowner.com",
+    "birdeye.com", "houzz.com", "cozywise.com", "expertise.com",
+    "homeguide.com", "porch.com", "bark.com",
 }
 
 OVERPASS_EPS = [

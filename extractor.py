@@ -19,6 +19,8 @@ def email_role_warning(email: str) -> str:
 
 
 def _clean_email(e: str) -> str:
+    from urllib.parse import unquote as _uq
+    e = _uq(e)  # decode %20, %40, etc. before stripping
     return e.strip().strip(".,;:()[]{}<>\"'").lower()
 
 
