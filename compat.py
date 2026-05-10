@@ -1,0 +1,36 @@
+"""
+Optional dependency detection. Import HAS_* flags and the objects themselves
+from here so every module has a single source of truth.
+Objects that failed to import are set to None — guard with HAS_* before use.
+"""
+from __future__ import annotations
+import logging
+
+logger = logging.getLogger("ContractorFinder")
+
+try:
+    from scrapling.fetchers import (
+        Fetcher, FetcherSession, AsyncFetcher,
+        StealthyFetcher, StealthySession,
+    )
+    from scrapling.parser import Adaptor
+    HAS_SCRAPLING = True
+except Exception as _e:
+    HAS_SCRAPLING = False
+    Fetcher = FetcherSession = AsyncFetcher = StealthyFetcher = StealthySession = None  # type: ignore[assignment,misc]
+    Adaptor = None  # type: ignore[assignment,misc]
+    logger.warning(f"[WARN] Scrapling unavailable: {_e}")
+
+try:
+    import aiohttp as _aiohttp
+    HAS_AIOHTTP = True
+except ImportError:
+    _aiohttp = None  # type: ignore[assignment]
+    HAS_AIOHTTP = False
+
+try:
+    import dns.resolver as _dns
+    HAS_DNS = True
+except ImportError:
+    _dns = None  # type: ignore[assignment]
+    HAS_DNS = False

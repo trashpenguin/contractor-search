@@ -199,6 +199,38 @@ Results appear live in the table with real-time progress tracking.
 
 ## 🏗️ Application Architecture
 
+### Module Layout
+
+The codebase is split into focused modules for easy maintenance:
+
+```
+contractor-search/
+├── contractor_gui.py        ← entry point (~50 lines)
+├── models.py                ← Contractor dataclass
+├── constants.py             ← regexes, TRADE_KW, colour maps, proxy sources
+├── compat.py                ← optional-dep detection (scrapling/aiohttp/dnspython)
+├── cache.py                 ← ContactCache (SQLite) + SearchHistory
+├── proxy.py                 ← ProxyManager elite pool
+├── http_client.py           ← http_get, stealth_get, post_bytes, event loop
+├── extractor.py             ← extract_contacts, verify_email, email helpers
+├── enricher.py              ← async/sync enrichment pipeline + dedup
+├── search.py                ← run_search orchestrator
+├── workers.py               ← SearchWorker / VerifyWorker (QThread)
+├── scrapers/
+│   ├── ddg.py               ← DuckDuckGo search + rate limiter
+│   ├── osm.py               ← OpenStreetMap / Overpass / Nominatim
+│   ├── yellowpages.py       ← YellowPages StealthySession scraper
+│   ├── yelp.py              ← Yelp StealthySession scraper
+│   └── google.py            ← Google Maps StealthySession scraper
+└── gui/
+    ├── style.py             ← STYLE CSS, COLS, VERIFY_COLORS/ICONS
+    ├── widgets.py           ← StatCard widget
+    └── main_window.py       ← MainWindow (~420 lines)
+```
+
+**Dependency flow (no circular imports):**
+`models` → `constants` → `compat` → `cache` → `proxy` → `http_client` → `extractor` → `scrapers/*` → `enricher` → `search` → `workers` → `gui/*` → `contractor_gui.py`
+
 ### Scrapling Strategy
 
 The app uses three Scrapling fetcher types (per Scrapling docs v0.4+):
@@ -353,7 +385,7 @@ $env:NO_PROXY=1
 
 ## 🔨 Modifying Trade Keywords
 
-Edit the `TRADE_KW` dictionary in `contractor_gui.py`:
+Edit the `TRADE_KW` dictionary in `constants.py`:
 
 ```python
 TRADE_KW = {
@@ -532,12 +564,25 @@ pytest tests/
 ### Format Code
 
 ```bash
-black contractor_gui.py
+black contractor_gui.py models.py constants.py compat.py cache.py proxy.py \
+      http_client.py extractor.py enricher.py search.py workers.py \
+      scrapers/ gui/
 ```
 
 ## 📝 Release Notes
 
-### v3.1 — Current
+### v3.2 — Current
+
+- Codebase split from single 2 271-line file into 18 focused modules
+- New `scrapers/` package (ddg, osm, yellowpages, yelp, google)
+- New `gui/` package (style, widgets, main_window)
+- `constants.py` — single source of truth for all regexes and lookup dicts
+- `compat.py` — centralised optional-dependency detection
+- `contractor_gui.py` reduced to ~50-line entry point
+- Logging configured in entry point before any module import (fixes early-import ordering bug)
+- No behaviour changes — identical feature set to v3.1
+
+### v3.1
 
 - Async enrichment pipeline (batches of 15 concurrent scrapes)
 - StealthySession persistent browser for YP, Yelp, Google Maps
