@@ -7,3 +7,4 @@ PySide6
 dnspython
 msgspec
 aiohttp
+python-whois

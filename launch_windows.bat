@@ -32,7 +32,7 @@ IF NOT EXIST "gui\main_window.py" (
 echo     OK
 
 echo [2/4] Installing Python packages...
-python -m pip install scrapling browserforge curl_cffi playwright patchright PySide6 dnspython msgspec aiohttp --quiet
+python -m pip install scrapling browserforge curl_cffi playwright patchright PySide6 dnspython msgspec aiohttp python-whois --quiet
 IF %ERRORLEVEL% NEQ 0 (
     echo [WARN] pip install returned errors — continuing anyway.
 )
