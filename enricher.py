@@ -1,14 +1,14 @@
 from __future__ import annotations
-import asyncio, re
+import asyncio, json, re
 import logging
 from urllib.parse import quote_plus, urljoin, urlparse
 
 from compat import HAS_SCRAPLING, HAS_AIOHTTP, HAS_DNS, Adaptor
-from constants import SCRAPE_SKIP, SKIP_DOMAINS, _FATAL_PROXY_ERRORS
+from constants import SCRAPE_SKIP, SKIP_DOMAINS, _FATAL_PROXY_ERRORS, EMAIL_RE
 from cache import CACHE
 from proxy import PROXY_MGR
 from http_client import http_get
-from extractor import extract_contacts, _ok_email
+from extractor import extract_contacts, _ok_email, _clean_email
 from models import Contractor
 
 logger = logging.getLogger("ContractorFinder")
@@ -139,6 +139,9 @@ async def async_scrape_website(url: str, session, timeout) -> tuple[str, str]:
     if not html:
         return "", ""
     email, phone = extract_contacts(html)
+    # JS file scan while we still have the homepage HTML in memory
+    if not email:
+        email = _scan_js_for_email(url, html)
     if (not email or not phone) and HAS_SCRAPLING:
         page  = Adaptor(html)
         hints = ("contact", "about", "team", "reach", "support")
@@ -294,6 +297,111 @@ async def enrich_batch_async(contractors: list[Contractor], city_hint: str) -> N
                 logger.debug(f"[Enrich] task error: {type(e).__name__}: {e}")
 
 
+# ── Deep email hunting strategies ────────────────────────────────────────────
+
+def _scan_js_for_email(url: str, html: str) -> str:
+    """
+    Download every same-domain <script src> file and scan for email addresses.
+    Site builders (Wix, Squarespace, GoDaddy) often embed the contact form
+    destination email inside a JS config file even when hiding it from HTML.
+    """
+    if not html or not HAS_SCRAPLING:
+        return ""
+    domain = urlparse(url).netloc
+    page   = Adaptor(html)
+    for script in page.css("script[src]"):
+        src = script.attrib.get("src", "")
+        if not src:
+            continue
+        abs_src = urljoin(url, src)
+        # Only scan scripts served from the same domain — skip CDN/analytics
+        if urlparse(abs_src).netloc not in ("", domain):
+            continue
+        js = http_get(abs_src, timeout=5)
+        if not js or len(js) > 500_000:   # skip huge bundles
+            continue
+        for raw in EMAIL_RE.findall(js):
+            e = _clean_email(raw)
+            if _ok_email(e):
+                logger.debug(f"[JS] email found in {abs_src[:60]}")
+                return e
+    return ""
+
+
+def _scan_sitemap_for_email(url: str) -> str:
+    """
+    Fetch /sitemap.xml (or the URL in robots.txt), find contact/about pages,
+    and scan each for an email address. Many sites hide the email on a staff
+    or about page that isn't linked from the contact form page.
+    """
+    base = f"{urlparse(url).scheme}://{urlparse(url).netloc}"
+    sitemap_content = http_get(base + "/sitemap.xml", timeout=6)
+    if not sitemap_content:
+        robots = http_get(base + "/robots.txt", timeout=4)
+        if robots:
+            m = re.search(r"Sitemap:\s*(https?://\S+)", robots, re.I)
+            if m:
+                sitemap_content = http_get(m.group(1), timeout=6)
+    if not sitemap_content:
+        return ""
+    all_urls = re.findall(r"<loc>(https?://[^<]+)</loc>", sitemap_content)
+    priority_words = ("contact", "about", "team", "staff", "reach", "people")
+    priority_urls  = [u for u in all_urls
+                      if any(w in u.lower() for w in priority_words)]
+    for page_url in priority_urls[:5]:
+        html = http_get(page_url, timeout=8)
+        if not html:
+            continue
+        email, _ = extract_contacts(html)
+        if email:
+            logger.debug(f"[Sitemap] email found on {page_url[:60]}")
+            return email
+    return ""
+
+
+def _whois_email(domain: str) -> str:
+    """
+    Check WHOIS registration record for the domain owner's email.
+    Requires `pip install python-whois`. Skipped silently if not installed.
+    Many small contractors register domains with their real email exposed.
+    """
+    try:
+        import whois  # type: ignore[import]
+        w      = whois.whois(domain)
+        emails = w.emails if hasattr(w, "emails") else []
+        if isinstance(emails, str):
+            emails = [emails]
+        privacy = ("privacy", "protect", "whoisguard", "redacted", "withheld")
+        for raw in (emails or []):
+            e = _clean_email(raw)
+            if _ok_email(e) and not any(p in e for p in privacy):
+                logger.debug(f"[WHOIS] email found for {domain}")
+                return e
+    except Exception:
+        pass
+    return ""
+
+
+def _ddg_email_hunt(domain: str) -> str:
+    """
+    Search DuckDuckGo for an email address associated with this domain.
+    Useful when the email appeared on a cached page, BBB listing, or forum post.
+    """
+    from scrapers.ddg import ddg_search
+    queries = [
+        quote_plus(f'"{domain}" email contact'),
+        quote_plus(f'"@{domain}"'),
+    ]
+    for q in queries:
+        for _, _, snippet in ddg_search(q, pages=1):
+            for raw in EMAIL_RE.findall(snippet):
+                e = _clean_email(raw)
+                if _ok_email(e) and domain in e:
+                    logger.debug(f"[DDG-hunt] email found in snippet for {domain}")
+                    return e
+    return ""
+
+
 def scrape_website(url: str) -> tuple[str, str]:
     """
     Sync multi-page website scraper (fallback when aiohttp not available).
@@ -340,4 +448,20 @@ def scrape_website(url: str) -> tuple[str, str]:
                 email = se
             if not phone:
                 phone = sp
+
+    # ── Deep email hunt (runs only when HTML scan found nothing) ─────────────
+    if not email:
+        domain = urlparse(url).netloc.replace("www.", "").split(":")[0]
+        # Strategy A: scan linked JS files on the homepage
+        email = _scan_js_for_email(url, html)
+    if not email:
+        # Strategy B: sitemap → contact/about/team pages
+        email = _scan_sitemap_for_email(url)
+    if not email:
+        # Strategy C: WHOIS registrant email (requires python-whois)
+        email = _whois_email(domain)
+    if not email:
+        # Strategy D: DDG search for "@domain.com" in snippets/cached pages
+        email = _ddg_email_hunt(domain)
+
     return email, phone
