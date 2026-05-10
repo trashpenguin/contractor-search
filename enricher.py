@@ -234,7 +234,9 @@ async def enrich_batch_async(contractors: list[Contractor], city_hint: str,
                     pass
         return ""
 
-    loc_hint = location or city_hint
+    loc_hint  = location or city_hint
+    ddg_count = [0]   # mutable counter shared across coroutines (asyncio = single-thread)
+    DDG_CAP   = 8     # max DDG website lookups per batch to avoid rate-limiting
 
     async def enrich_one(c: Contractor, session):
         async with _get_sem(c.website or ""):
@@ -243,10 +245,11 @@ async def enrich_batch_async(contractors: list[Contractor], city_hint: str,
                 guessed = await _guess_domain(c.name, session)
                 if guessed:
                     c.website = guessed
-            # Step 2: DDG website lookup — only if no phone either, to avoid
-            # hammering DDG for the many OSM contractors that have phones but
-            # no web presence (domain guessing already covered those).
-            if not c.website and not c.phone and c.name:
+            # Step 2: DDG website lookup — capped at DDG_CAP per batch.
+            # OSM contractors rarely have websites; hitting DDG 30+ times
+            # causes 202 rate-limit responses and blocks all three trades.
+            if not c.website and c.name and ddg_count[0] < DDG_CAP:
+                ddg_count[0] += 1
                 await asyncio.sleep(0.3)
                 from scrapers.ddg import ddg_search
                 q = quote_plus(f'"{c.name}" {loc_hint} contractor')
@@ -317,6 +320,7 @@ def _scan_js_for_email(url: str, html: str) -> str:
         return ""
     domain = urlparse(url).netloc
     page   = Adaptor(html)
+    checked = 0
     for script in page.css("script[src]"):
         src = script.attrib.get("src", "")
         if not src:
@@ -325,6 +329,9 @@ def _scan_js_for_email(url: str, html: str) -> str:
         # Only scan scripts served from the same domain — skip CDN/analytics
         if urlparse(abs_src).netloc not in ("", domain):
             continue
+        if checked >= 5:   # cap at 5 same-domain scripts to avoid 13+ downloads
+            break
+        checked += 1
         js = http_get(abs_src, timeout=5)
         if not js or len(js) > 500_000:   # skip huge bundles
             continue

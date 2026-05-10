@@ -38,7 +38,8 @@ SKIP_DOMAINS = {
     "thumbtack.com", "angieslist.com", "nextdoor.com", "duckduckgo.com",
     "buildzoom.com", "threebestrated.com", "todayshomeowner.com",
     "birdeye.com", "houzz.com", "cozywise.com", "expertise.com",
-    "homeguide.com", "porch.com", "bark.com",
+    "homeguide.com", "porch.com", "bark.com", "myhomequote.com",
+    "improvenet.com", "networx.com", "fixr.com", "remodelingcosts.org",
 }
 
 SCRAPE_SKIP = {
@@ -47,7 +48,8 @@ SCRAPE_SKIP = {
     "rwg_token", "netic.ai",
     "buildzoom.com", "threebestrated.com", "todayshomeowner.com",
     "birdeye.com", "houzz.com", "cozywise.com", "expertise.com",
-    "homeguide.com", "porch.com", "bark.com",
+    "homeguide.com", "porch.com", "bark.com", "myhomequote.com",
+    "improvenet.com", "networx.com", "fixr.com", "remodelingcosts.org",
 }
 
 OVERPASS_EPS = [

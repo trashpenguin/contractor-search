@@ -82,6 +82,7 @@ def ddg_search(query: str, pages: int = 2) -> list[tuple[str, str, str]]:
         if found == 0:
             break
 
-    if results:
-        CACHE.set_ddg(query, [(n, u, s) for n, u, s in results])
+    # Cache even empty results — prevents re-querying DDG for contractors
+    # that simply don't appear online (saves repeated 202 round-trips).
+    CACHE.set_ddg(query, [(n, u, s) for n, u, s in results])
     return results
