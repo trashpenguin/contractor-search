@@ -80,7 +80,13 @@ PROXY_SOURCES = [
     # proxifly — updated every 30 min, tiered quality
     "https://raw.githubusercontent.com/proxifly/free-proxy-list/main/proxies/quality/high/data.txt",
     "https://raw.githubusercontent.com/proxifly/free-proxy-list/main/proxies/protocols/http/data.txt",
-    # fallbacks
+    # monosans — frequently updated, clean ip:port format
+    "https://raw.githubusercontent.com/monosans/proxy-list/main/proxies/http.txt",
+    # clarketm — stable long-running list
+    "https://raw.githubusercontent.com/clarketm/proxy-list/master/proxy-list-raw.txt",
+    # ShiftyTR — additional coverage
+    "https://raw.githubusercontent.com/ShiftyTR/Proxy-List/master/http.txt",
+    # TheSpeedX — large fallback
     "https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/http.txt",
 ]
 
