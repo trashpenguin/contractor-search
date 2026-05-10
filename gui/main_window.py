@@ -234,6 +234,8 @@ class MainWindow(QMainWindow):
     # ── Search controls ───────────────────────────────────────────────────────
 
     def start_search(self):
+        if self.worker and self.worker.isRunning():
+            return  # ignore re-entrant call (e.g. Enter key while search is active)
         loc = self.loc.currentText().strip()
         if not loc:
             QMessageBox.warning(self, "Error", "Enter a US location.")
@@ -250,6 +252,9 @@ class MainWindow(QMainWindow):
         self.table.setRowCount(0)
         for c in self.stats.values():
             c.set(0)
+        self.tf.setCurrentIndex(0)   # reset trade filter to "All"
+        self.sf2.setCurrentIndex(0)  # reset source filter to "All Sources"
+        self.nf.clear()              # reset name search
         self.sbtn.setEnabled(False)
         self.xbtn.setEnabled(True)
         self.pbar.setValue(0)
@@ -300,9 +305,15 @@ class MainWindow(QMainWindow):
 
     def _add_row(self, c: Contractor):
         self.rows.append(c)
-        row = self.table.rowCount()
-        self.table.insertRow(row)
-        self._fill_row(row, c)
+        trade  = self.tf.currentText()
+        src    = self.sf2.currentText()
+        name   = self.nf.text().strip().lower()
+        if (trade == "All" or c.trade == trade) \
+                and (src == "All Sources" or c.source == src) \
+                and (not name or name in c.name.lower()):
+            row = self.table.rowCount()
+            self.table.insertRow(row)
+            self._fill_row(row, c)
         self._update_stats()
 
     def _fill_row(self, row: int, c: Contractor):
