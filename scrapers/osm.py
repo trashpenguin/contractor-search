@@ -28,9 +28,9 @@ def scrape_osm(trade: str, lat: float, lon: float, radius_m: int, limit: int) ->
     q     = (
         f'[out:json][timeout:90];'
         f'(nwr(around:{radius_m},{lat},{lon})["name"~"{regex}",i];'
-        f'nwr(around:{radius_m},{lat},{lon})["shop"~"hvac|electrical|heating",i];'
-        f'nwr(around:{radius_m},{lat},{lon})["craft"~"electrician|hvac|excavation",i];'
-        f'nwr(around:{radius_m},{lat},{lon})["trade"~"electrician|hvac|excavation",i];'
+        f'nwr(around:{radius_m},{lat},{lon})["shop"~"{regex}",i];'
+        f'nwr(around:{radius_m},{lat},{lon})["craft"~"{regex}",i];'
+        f'nwr(around:{radius_m},{lat},{lon})["trade"~"{regex}",i];'
         f');out center tags;'
     )
     payload  = f"data={quote_plus(q)}".encode()

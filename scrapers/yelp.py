@@ -340,7 +340,7 @@ def _yelp_ddg_fallback(kw: str, city_raw: str, state: str, limit: int) -> list[d
     queries = [
         quote_plus(f"{kw} contractor {city_raw} {state}"),
         quote_plus(f"best {kw} {city_raw} {state}"),
-        quote_plus(f"{kw} {city_raw} {state} heating cooling"),
+        quote_plus(f"{kw} {city_raw} {state}"),
     ]
 
     for q in queries:
@@ -414,10 +414,10 @@ def scrape_yelp(trade: str, location: str, limit: int) -> list[Contractor]:
     """
     keyword  = TRADE_KW[trade]["yelp"]
     city_raw = location.split(",")[0].strip()
-    state    = (
-        "MI" if "mi" in location.lower()
-        else location.split(",")[-1].strip()[:2].upper()
-    )
+    # Extract 2-letter state code from the location string (e.g. "Warren, MI 48091" → "MI")
+    # Old code used "mi" in location which matched "Miami, FL" and returned wrong state.
+    _state_m = re.search(r'\b([A-Z]{2})\b', location.upper())
+    state    = _state_m.group(1) if _state_m else location.split(",")[-1].strip()[:2].upper()
 
     cache_key = f"yelp_{trade}_{city_raw}".lower()
     cached    = CACHE.get_ddg(cache_key)
