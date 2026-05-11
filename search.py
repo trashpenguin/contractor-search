@@ -45,19 +45,21 @@ def run_search(
         done_cb(False, str(e))
         return
 
-    total = len(trades) * len(sources)
-    step  = 0
+    n_trades       = len(trades)
+    n_sources      = len(sources)
+    trade_alloc    = 100.0 / n_trades   # percent of bar each trade owns
+    scrape_frac    = 0.4 if enrich else 1.0   # fraction of trade_alloc for scraping
 
-    for trade in trades:
+    for trade_idx, trade in enumerate(trades):
         if stop_ev.is_set():
             break
+        trade_base = trade_idx * trade_alloc
         collected: list[Contractor] = []
 
-        for src in sources:
+        for src_idx, src in enumerate(sources):
             if stop_ev.is_set():
                 break
-            step += 1
-            pct = int(step / total * 70)
+            pct = int(trade_base + (src_idx + 1) / n_sources * trade_alloc * scrape_frac)
             progress_cb(pct, f"[{src}] Searching {trade} near {location}...")
             try:
                 if src == "OSM":
@@ -86,14 +88,16 @@ def run_search(
                     c.email = decoded
 
         if enrich and collected:
-            BATCH      = 15
-            n_total    = len(collected)
-            ddg_state  = [0]  # shared across all batches for this trade (cap = 8 total)
+            BATCH         = 15
+            n_total       = len(collected)
+            scrape_end    = int(trade_base + trade_alloc * scrape_frac)
+            enrich_alloc  = trade_alloc * (1.0 - scrape_frac)
+            ddg_state     = [0]  # shared across all batches for this trade (cap = 8 total)
             for batch_start in range(0, n_total, BATCH):
                 if stop_ev.is_set():
                     break
                 batch = collected[batch_start:batch_start + BATCH]
-                pct   = int(70 + (batch_start / max(n_total, 1)) * 25)
+                pct   = int(scrape_end + (batch_start / max(n_total, 1)) * enrich_alloc)
                 progress_cb(
                     pct,
                     f"[{trade}] Enriching {batch_start+1}-"

@@ -339,13 +339,14 @@ class MainWindow(QMainWindow):
     def _on_progress(self, p: int, msg: str):
         self.pbar.setValue(p)
         self.statusBar().showMessage(msg)
-        # Mark source as running when its message comes in
+        # Mark source as running whenever it starts — even mid-search on trade 2+
         for src in self._src_labels:
             if f"[{src}]" in msg and "Searching" in msg:
                 lbl = self._src_labels[src]
-                if lbl.styleSheet() == _SRC_IDLE_STYLE:
-                    lbl.setText(f"{src}: ⏳")
-                    lbl.setStyleSheet(_SRC_RUN_STYLE)
+                prior = self._src_counts.get(src, 0)
+                suffix = f" {prior}" if prior else ""
+                lbl.setText(f"{src}: ⏳{suffix}")
+                lbl.setStyleSheet(_SRC_RUN_STYLE)
                 break
 
     def _on_done(self, ok: bool, err: str):
