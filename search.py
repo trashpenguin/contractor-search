@@ -35,6 +35,7 @@ def run_search(
     result_cb,
     done_cb,
     stop_ev: threading.Event,
+    source_cb=None,
 ):
     from scrapers.osm import geocode
     try:
@@ -67,8 +68,12 @@ def run_search(
                     batch = SRC_FN[src](trade, location, limit)
                 collected.extend(batch)
                 progress_cb(pct, f"[{src}] {trade}: {len(batch)} found")
+                if source_cb:
+                    source_cb(src, trade, len(batch))
             except Exception as e:
                 logger.info(f"[{src}] {trade} error: {e}")
+                if source_cb:
+                    source_cb(src, trade, -1)
 
         collected = dedup(collected)
         city_hint = location.split(",")[0].strip()

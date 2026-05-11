@@ -8,9 +8,10 @@ from search import run_search
 
 
 class SearchWorker(QThread):
-    progress = Signal(int, str)
-    result   = Signal(object)
-    finished = Signal(bool, str)
+    progress    = Signal(int, str)
+    result      = Signal(object)
+    finished    = Signal(bool, str)
+    source_done = Signal(str, str, int)   # source, trade, count (-1 = error)
 
     def __init__(self, location, trades, limit, radius_m, enrich, sources):
         super().__init__()
@@ -27,6 +28,7 @@ class SearchWorker(QThread):
             self.location, self.trades, self.limit, self.radius_m,
             self.enrich, self.sources,
             self.progress.emit, self.result.emit, self.finished.emit, self._stop,
+            source_cb=self.source_done.emit,
         )
 
     def stop(self):
