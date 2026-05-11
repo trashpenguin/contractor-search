@@ -14,6 +14,27 @@ from models import Contractor
 
 logger = logging.getLogger("ContractorFinder")
 
+# Names that look like article/listicle titles rather than real business names
+_LISTICLE_RE = re.compile(
+    r'(?:'
+    r'^\d+\s+best\b'           # "10 Best HVAC..."
+    r'|^the\s+\d+\b'           # "The 10 Best..."
+    r'|^top[\s\-]rated\b'      # "Top-Rated HVAC..."
+    r'|^top\s+\d+\b'           # "Top 10..."
+    r'|^best\s+\w'             # "Best HVAC..."
+    r'|\bcontractors\s+in\b'   # "...Contractors in Warren..."
+    r'|\bcompanies\s+in\b'     # "...Companies in..."
+    r'|\bservices\s+in\b'      # "...Services in Warren..."
+    r'|\bexperts\s+in\b'       # "...Experts in..."
+    r'|\bproviders\s+in\b'     # "...Providers in..."
+    r')',
+    re.I
+)
+
+
+def _is_listicle_name(name: str) -> bool:
+    return bool(_LISTICLE_RE.search(name))
+
 
 # ── __NEXT_DATA__ parser ──────────────────────────────────────────────────────
 
@@ -52,7 +73,7 @@ def _parse_next_data(html: str) -> list[dict]:
             continue
         name = biz.get("name", "").strip()
         biz_url = biz.get("businessUrl") or biz.get("url") or biz.get("href", "")
-        if not name or not biz_url:
+        if not name or not biz_url or _is_listicle_name(name):
             continue
         out.append({
             "name":     name,
@@ -339,7 +360,7 @@ def _yelp_ddg_fallback(kw: str, city_raw: str, state: str, limit: int) -> list[d
 
     queries = [
         quote_plus(f"{kw} contractor {city_raw} {state}"),
-        quote_plus(f"best {kw} {city_raw} {state}"),
+        quote_plus(f"{kw} company {city_raw} {state}"),
         quote_plus(f"{kw} {city_raw} {state}"),
     ]
 
@@ -381,7 +402,7 @@ def _yelp_ddg_fallback(kw: str, city_raw: str, state: str, limit: int) -> list[d
                     name = name.split(sep)[0]
                     break
             name = name.strip()
-            if not name or len(name) < 3:
+            if not name or len(name) < 3 or _is_listicle_name(name):
                 continue
             # Phone from snippet
             phone = ""
