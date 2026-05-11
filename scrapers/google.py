@@ -45,7 +45,7 @@ def _parse_app_state(html: str) -> dict:
         r'"([A-Z][A-Za-z0-9&\'\.\s\-]{4,55})"'
     )
     for pm in phone_pat.finditer(chunk):
-        window = chunk[max(0, pm.start() - 900): pm.start()]
+        window = chunk[max(0, pm.start() - 900): min(len(chunk), pm.end() + 900)]
         for nm in name_pat.finditer(window):
             candidate = nm.group(1).strip()
             # Filter out obvious non-names

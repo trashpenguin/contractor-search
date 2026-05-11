@@ -73,11 +73,10 @@ def run_search(
         collected = dedup(collected)
         city_hint = location.split(",")[0].strip()
 
-        # Decode URL-encoded emails up front
+        # Decode URL-encoded emails up front (_clean_email already calls unquote)
         for c in collected:
             if c.email and "%" in c.email:
-                from urllib.parse import unquote as _uq
-                decoded = _clean_email(_uq(c.email))
+                decoded = _clean_email(c.email)
                 if _ok_email(decoded):
                     c.email = decoded
 

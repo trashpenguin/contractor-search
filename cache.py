@@ -14,6 +14,8 @@ class SearchHistory:
         try:
             with open(self.PATH, "r", encoding="utf-8") as f:
                 data = json.load(f)
+                if not isinstance(data, list):
+                    return []
                 return [str(x) for x in data if x]
         except Exception:
             return []
@@ -74,8 +76,8 @@ class ContactCache:
                 ).fetchone()
                 if row and (time.time() - row[3]) < self.TTL_CONTACT:
                     return {"email": row[0], "phone": row[1], "website": row[2]}
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"[Cache] get_contact failed: {e}")
         return None
 
     def set_contact(self, key: str, email: str, phone: str, website: str):
@@ -88,8 +90,8 @@ class ContactCache:
                     (key, email, phone, website, time.time())
                 )
                 self._conn.commit()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"[Cache] set_contact failed: {e}")
 
     def get_ddg(self, query: str) -> list | None:
         if not self._conn:
@@ -103,8 +105,8 @@ class ContactCache:
                 ).fetchone()
                 if row and (time.time() - row[1]) < self.TTL_DDG:
                     return json.loads(row[0])
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"[Cache] get_ddg failed: {e}")
         return None
 
     def set_ddg(self, query: str, results: list):
@@ -118,8 +120,8 @@ class ContactCache:
                     (qhash, json.dumps(results), time.time())
                 )
                 self._conn.commit()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"[Cache] set_ddg failed: {e}")
 
     def purge_old(self):
         if not self._conn:
@@ -130,8 +132,8 @@ class ContactCache:
                 self._conn.execute("DELETE FROM contacts WHERE created_at < ?", (cutoff,))
                 self._conn.execute("DELETE FROM ddg_cache WHERE created_at < ?", (cutoff,))
                 self._conn.commit()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"[Cache] purge_old failed: {e}")
 
 
 SEARCH_HISTORY = SearchHistory()

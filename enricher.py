@@ -206,11 +206,10 @@ async def enrich_batch_async(contractors: list[Contractor], city_hint: str,
         clean  = re.sub(r"[^a-z0-9]", "", name.lower())
         if len(clean) < 3:
             return ""
-        city_c = re.sub(r"[^a-z]", "", city_hint.lower())
+        city_c = re.sub(r"[^a-z0-9]", "", city_hint.lower())
         candidates = [
             f"https://www.{clean}.com",
             f"https://{clean}.com",
-            f"https://www.{clean}michigan.com",
             f"https://www.{clean}{city_c}.com",
             f"https://www.{clean}hvac.com",
             f"https://www.{clean}heating.com",

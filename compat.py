@@ -27,6 +27,7 @@ try:
 except ImportError:
     _aiohttp = None  # type: ignore[assignment]
     HAS_AIOHTTP = False
+    logger.warning("[WARN] aiohttp not installed — async enrichment disabled (pip install aiohttp)")
 
 try:
     import dns.resolver as _dns
@@ -34,3 +35,4 @@ try:
 except ImportError:
     _dns = None  # type: ignore[assignment]
     HAS_DNS = False
+    logger.warning("[WARN] dnspython not installed — email MX verification disabled (pip install dnspython)")

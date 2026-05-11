@@ -131,22 +131,18 @@ class ProxyManager:
 
     def _get_next(self) -> str | None:
         with self._lock:
-            now    = time.time()
-            active = [e for e in self._pool
-                      if e.score > 0 and
-                      not (hasattr(e, "_cooldown_until") and now < e._cooldown_until)]
+            active = [e for e in self._pool if e.score > 0]
             if not active:
                 return None
-            if self._cur_idx < len(active):
-                entry = active[self._cur_idx % len(active)]
-                if entry.uses < self.STICKY_LIMIT:
-                    entry.uses += 1
-                    return entry.url
+            # Clamp index in case pool shrank since last call
+            self._cur_idx = self._cur_idx % len(active)
+            entry = active[self._cur_idx]
+            if entry.uses >= self.STICKY_LIMIT:
                 self._cur_idx = (self._cur_idx + 1) % len(active)
                 entry = active[self._cur_idx]
-                entry.uses = 1
-                return entry.url
-            return None
+                entry.uses = 0
+            entry.uses += 1
+            return entry.url
 
     def get(self) -> str | None:
         return self._get_next()
@@ -167,8 +163,6 @@ class ProxyManager:
                         logger.info(f"[Proxy] Circuit broken (timeout): {proxy[7:30]}")
                     elif success:
                         entry.score = min(entry.score + 1, 5)
-                        if hasattr(entry, "_cooldown_until"):
-                            del entry._cooldown_until
                     else:
                         entry.score -= 1
                     break

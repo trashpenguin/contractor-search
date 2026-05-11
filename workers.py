@@ -55,7 +55,8 @@ class VerifyWorker(QThread):
             status, reason = verify_email(c.email) if c.email else ("unknown", "No email")
             c.email_status = status
             self.result.emit(i, status, reason)
-            time.sleep(0.3)
+            if c.email:
+                time.sleep(0.1)  # brief rate-limit guard only when a DNS call was made
         self.finished.emit()
 
     def stop(self):
