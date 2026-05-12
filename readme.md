@@ -1,4 +1,4 @@
-# Contractor Finder v3.2
+# Contractor Finder v3.3
 
 Professional desktop application for finding contractors (HVAC, Electrical, Excavating) across USA locations. Aggregates data from OpenStreetMap, YellowPages, Yelp, and Google Maps, then enriches results with phone numbers, emails, and websites via a fully async pipeline.
 
@@ -36,6 +36,10 @@ Built with Scrapling stealth browser automation, a rate-aware DDG pipeline, and 
 - Email MX-based verification
 - Lead-gen / aggregator domain blocklist (buildzoom, myhomequote, birdeye, houzz, etc.)
 - Dark-themed desktop UI — live stats per trade, trade/source/name filters
+- Per-source status badges (OSM / YellowPages / Yelp / Google) update live during search
+- Live elapsed timer with 5-minute warning when search is taking longer than expected
+- Location input validation with descriptive error messages
+- Progress bar monotonically increases across all trades (never jumps backward)
 - Filter resets automatically on each new search
 - Search history (last 20 locations)
 - Google Sheets export support
@@ -342,7 +346,31 @@ Each trade has separate keyword sets per source.
 
 ## Release Notes
 
-### v3.2 — Current
+### v3.3 — Current
+
+#### UI improvements
+
+- **Per-source status badges** — strip below the progress bar shows OSM / YellowPages / Yelp / Google status live: `—` idle → `⏳` running → `✓ N` with result count → `✗` on error. Counts accumulate across all trades so the badge always shows the running total.
+- **Live elapsed timer** — `⏱ M:SS` counter in the top-right of the search panel. Turns amber and shows a status bar warning after 5 minutes (normal for 3-trade searches with enrichment).
+- **Location validation** — rejects empty input, inputs under 3 characters, and inputs with no letters, with specific error messages before any search is started.
+- **Progress bar never goes backward** — each trade now owns a proportional slice of the 0–100% bar (40% scraping / 60% enrichment within each trade's slice), so the bar is monotonically increasing even with 3 trades.
+- **Source badges show `⏳` on every trade** — not just the first time a source fires. On trade 2+ the badge shows `⏳ 15` (spinner + prior count) while active.
+
+#### Bug fixes
+
+- **OSM wrong-trade results** — `shop` / `craft` / `trade` tag filters in the Overpass query were hardcoded to include all trade keywords regardless of which trade was being searched. Now uses the per-trade `regex` variable already built from `TRADE_KW[trade]["osm"]`.
+- **Yelp state code false match** — `"mi" in location.lower()` matched "Miami, FL" and returned the wrong state code. Fixed with `re.search(r'\b([A-Z]{2})\b', location.upper())` for whole-word extraction.
+- **DDG fallback query biased toward HVAC** — the third DDG query in the Yelp fallback had `"heating cooling"` hardcoded for all trades. Replaced with the plain trade keyword.
+- **Yelp listicle names** — DDG Strategy C was keeping article titles like "10 Best HVAC Services in Warren" and "Top-Rated HVAC Experts in..." as business names. New `_is_listicle_name()` filter rejects those patterns. DDG query 2 also changed from `"best {kw} ..."` to `"{kw} company ..."` to avoid pulling listicle pages.
+- **Proxy index out-of-bounds** — `_get_next()` returned `None` when `_cur_idx` grew larger than the active pool after proxies were removed. Fixed by clamping with `% len(active)` before use.
+- **Silent cache failures** — all `except Exception: pass` blocks in `cache.py` replaced with `logger.warning(...)` so DB errors are no longer invisible.
+- **Double URL-decode on emails** — `_clean_email()` already calls `unquote()` internally; the extra `_uq()` call in `search.py` was decoding a second time. Removed.
+- **Hardcoded Michigan domain candidate** — `enricher.py` was injecting `f"https://www.{name}michigan.com"` as a domain guess regardless of location. Removed.
+- **`city_c` regex dropped digits** — domain-guessing regex `[^a-z]` stripped digits from city names like "warren48" → fixed to `[^a-z0-9]`.
+- **Google Maps narrow name window** — extended the extraction window around a phone number match from ±300 to ±900 characters to capture names further from the phone.
+- **`compat.py` silent missing deps** — missing `aiohttp` / `dnspython` now emit `logger.warning()` instead of silently falling back.
+
+### v3.2
 
 #### Scraper improvements
 
