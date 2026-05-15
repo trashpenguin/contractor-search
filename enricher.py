@@ -8,7 +8,7 @@ from urllib.parse import quote_plus, urljoin, urlparse
 from cache import CACHE
 from compat import HAS_AIOHTTP, HAS_DNS, HAS_SCRAPLING, Adaptor
 from config import DDG_CAP, SEM_DDG, SEM_DEFAULT, SEM_GOOGLE, SEM_YELLOWPAGES
-from constants import _FATAL_PROXY_ERRORS, SCRAPE_SKIP, SKIP_DOMAINS
+from constants import _FATAL_PROXY_ERRORS, SCRAPE_SKIP, SKIP_DOMAINS, TRADE_KW
 from email_hunter import _ddg_email_hunt, _scan_js_for_email, _scan_sitemap_for_email, _whois_email
 from extractor import _clean_email, _ok_email, extract_contacts
 from http_client import http_get
@@ -76,6 +76,32 @@ def _domain_key(website: str) -> str:
 def _phone_key(phone: str) -> str:
     d = re.sub(r"[^0-9]", "", phone or "")
     return d[-10:] if len(d) >= 10 else ""
+
+
+def _build_domain_candidates(clean_name: str, clean_city: str, trade_suffix: str = "") -> list[str]:
+    """Return ordered list of domain URLs to probe for a contractor."""
+    if len(clean_name) < 3:
+        return []
+    base = [
+        f"https://www.{clean_name}.com",
+        f"https://{clean_name}.com",
+        f"https://www.{clean_name}{clean_city}.com",
+        f"https://www.{clean_name}hvac.com",
+        f"https://www.{clean_name}heating.com",
+        f"https://www.{clean_name}electric.com",
+        f"https://www.{clean_name}excavating.com",
+        f"https://www.{clean_name}contracting.com",
+        f"https://www.{clean_name}plumbing.com",
+        f"https://www.{clean_name}roofing.com",
+        # .net variants
+        f"https://www.{clean_name}.net",
+        f"https://{clean_name}.net",
+        f"https://www.{clean_name}{clean_city}.net",
+    ]
+    if trade_suffix:
+        base.insert(3, f"https://www.{clean_name}{trade_suffix}.com")
+        base.insert(4, f"https://www.{clean_name}{trade_suffix}.net")
+    return base
 
 
 def dedup(rows: list[Contractor]) -> list[Contractor]:
@@ -240,23 +266,17 @@ async def enrich_batch_async(
         limit=20, ttl_dns_cache=300, force_close=False, enable_cleanup_closed=True
     )
 
-    async def _guess_domain(name: str, session) -> str:
+    async def _guess_domain(name: str, trade: str, session) -> str:
         clean = re.sub(r"[^a-z0-9]", "", name.lower())
-        if len(clean) < 3:
-            return ""
         city_c = re.sub(r"[^a-z0-9]", "", city_hint.lower())
-        candidates = [
-            f"https://www.{clean}.com",
-            f"https://{clean}.com",
-            f"https://www.{clean}{city_c}.com",
-            f"https://www.{clean}hvac.com",
-            f"https://www.{clean}heating.com",
-            f"https://www.{clean}electric.com",
-            f"https://www.{clean}excavating.com",
-            f"https://www.{clean}contracting.com",
-        ]
+        # pick first trade keyword as suffix (e.g. "plumbing", "hvac")
+        trade_kws = TRADE_KW.get(trade, {}).get("ddg", [])
+        trade_suffix = re.sub(r"[^a-z0-9]", "", trade_kws[0].lower()) if trade_kws else ""
+        candidates = _build_domain_candidates(clean, city_c, trade_suffix)
+        if not candidates:
+            return ""
         t_short = aiohttp.ClientTimeout(total=3)
-        for url in candidates[:5]:  # check first 5 guesses; beyond that accuracy drops
+        for url in candidates[:8]:  # check first 8; beyond that accuracy drops
             try:
                 async with session.head(url, timeout=t_short, ssl=True, allow_redirects=True) as r:
                     if r.status in (200, 301, 302, 304):
@@ -282,18 +302,18 @@ async def enrich_batch_async(
         async with _get_sem(c.website or ""):
             # Step 1: domain guessing
             if not c.website and c.name:
-                guessed = await _guess_domain(c.name, session)
+                guessed = await _guess_domain(c.name, c.trade, session)
                 if guessed:
                     c.website = guessed
             # Step 2: DDG website lookup — capped at DDG_CAP per batch.
             # OSM contractors rarely have websites; hitting DDG 30+ times
             # causes 202 rate-limit responses and blocks all three trades.
-            if not c.website and c.name and ddg_count[0] < DDG_CAP:
+            if not c.website and c.name and ddg_count[0] < DDG_CAP and c.quality_score == 0:
                 ddg_count[0] += 1
                 await asyncio.sleep(0.3)
                 from scrapers.ddg import ddg_search
 
-                q = quote_plus(f'"{c.name}" {loc_hint} contractor')
+                q = quote_plus(f'"{c.name}" "{loc_hint}" -yelp -yellowpages -bbb')
                 for _, url, _ in ddg_search(q, pages=1):
                     if url.startswith("http") and not any(d in url for d in SKIP_DOMAINS):
                         c.website = url
