@@ -1,42 +1,47 @@
 from __future__ import annotations
-import csv, os, re, tempfile, time, webbrowser
-from dataclasses import asdict
 
-from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui  import QColor, QFont, QBrush
+from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import (
-    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QLabel, QLineEdit, QPushButton, QComboBox, QCheckBox,
-    QTableWidget, QTableWidgetItem, QProgressBar, QFileDialog,
-    QStatusBar, QMessageBox, QAbstractItemView,
-    QGroupBox, QDialog, QTextEdit, QDialogButtonBox,
+    QAbstractItemView,
+    QCheckBox,
+    QComboBox,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMainWindow,
+    QProgressBar,
+    QPushButton,
+    QStatusBar,
+    QTableWidget,
+    QVBoxLayout,
+    QWidget,
 )
 
-from compat import HAS_SCRAPLING, HAS_AIOHTTP, HAS_DNS
-from constants import TRADE_COLORS, SOURCE_COLORS
 from cache import SEARCH_HISTORY
-from proxy import PROXY_MGR
-from extractor import email_role_warning
-from models import Contractor
-from workers import SearchWorker, VerifyWorker
-from gui.style import COLS, VERIFY_COLORS, VERIFY_ICONS
+from compat import HAS_AIOHTTP, HAS_DNS, HAS_SCRAPLING
+from constants import TRADE_COLORS
+from gui.export_mixin import ExportMixin
+from gui.search_mixin import SearchMixin
+from gui.style import COLS
+from gui.table_mixin import TableMixin
 from gui.widgets import StatCard
+from models import Contractor
 
-_SRC_IDLE_STYLE  = "color:#475569;font-size:10px;font-family:monospace;padding:2px 8px;background:#161925;border-radius:4px;"
-_SRC_RUN_STYLE   = "color:#f59e0b;font-size:10px;font-family:monospace;padding:2px 8px;background:#161925;border-radius:4px;"
-_SRC_OK_STYLE    = "color:#10b981;font-size:10px;font-family:monospace;padding:2px 8px;background:#161925;border-radius:4px;"
-_SRC_ERR_STYLE   = "color:#ef4444;font-size:10px;font-family:monospace;padding:2px 8px;background:#161925;border-radius:4px;"
-_ELAPSED_STYLE   = "color:#475569;font-size:10px;font-family:monospace;"
-_WARN_ELAPSED    = "color:#f59e0b;font-size:10px;font-family:monospace;"
+_SRC_IDLE_STYLE = (
+    "color:#475569;font-size:10px;font-family:monospace;"
+    "padding:2px 8px;background:#161925;border-radius:4px;"
+)
+_ELAPSED_STYLE = "color:#475569;font-size:10px;font-family:monospace;"
 
 
-class MainWindow(QMainWindow):
+class MainWindow(SearchMixin, TableMixin, ExportMixin, QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Contractor Finder v3  ·  Scrapling Powered")
         self.resize(1300, 820)
         self.rows: list[Contractor] = []
-        self.worker  = None
+        self.worker = None
         self.vworker = None
         self._src_counts: dict[str, int] = {}
         self._search_start: float = 0
@@ -47,12 +52,12 @@ class MainWindow(QMainWindow):
         self._build()
 
     def _lbl(self, txt: str) -> QLabel:
-        l = QLabel(txt)
-        l.setStyleSheet("color:#94a3b8;font-size:11px;font-weight:600;")
-        return l
+        lbl = QLabel(txt)
+        lbl.setStyleSheet("color:#94a3b8;font-size:11px;font-weight:600;")
+        return lbl
 
     def _build(self):
-        cw   = QWidget()
+        cw = QWidget()
         self.setCentralWidget(cw)
         root = QVBoxLayout(cw)
         root.setContentsMargins(18, 12, 18, 8)
@@ -60,7 +65,7 @@ class MainWindow(QMainWindow):
 
         # Header
         hdr = QHBoxLayout()
-        t   = QLabel("Contractor Finder")
+        t = QLabel("Contractor Finder")
         t.setStyleSheet("font-size:18px;font-weight:700;")
         hdr.addWidget(t)
         sub = QLabel("  v3  ·  Phone · Email · Website  ·  USA Locations")
@@ -82,7 +87,7 @@ class MainWindow(QMainWindow):
         self.loc.setEditable(True)
         self.loc.setFixedHeight(34)
         self.loc.setInsertPolicy(QComboBox.InsertAtTop)
-        _hist   = SEARCH_HISTORY.load()
+        _hist = SEARCH_HISTORY.load()
         default = "Warren, MI 48091"
         for loc in [default] + [h for h in _hist if h != default]:
             self.loc.addItem(loc)
@@ -95,8 +100,13 @@ class MainWindow(QMainWindow):
         rc.addWidget(self._lbl("Radius"))
         self.radius = QComboBox()
         self.radius.setFixedHeight(34)
-        self.rmap = {"10 mi": "10000", "25 mi": "25000", "40 mi": "40000",
-                     "60 mi": "60000", "80 mi": "80000"}
+        self.rmap = {
+            "10 mi": "10000",
+            "25 mi": "25000",
+            "40 mi": "40000",
+            "60 mi": "60000",
+            "80 mi": "80000",
+        }
         for k in self.rmap:
             self.radius.addItem(k)
         self.radius.setCurrentIndex(2)
@@ -127,8 +137,12 @@ class MainWindow(QMainWindow):
         r2.addSpacing(16)
         r2.addWidget(self._lbl("Sources:"))
         self.chk_s: dict[str, QCheckBox] = {}
-        src_colors = {"OSM": "#8b5cf6", "YellowPages": "#f97316",
-                      "Yelp": "#ef4444", "Google": "#34d399"}
+        src_colors = {
+            "OSM": "#8b5cf6",
+            "YellowPages": "#f97316",
+            "Yelp": "#ef4444",
+            "Google": "#34d399",
+        }
         for s, col in src_colors.items():
             cb = QCheckBox(s)
             cb.setChecked(True)
@@ -243,9 +257,11 @@ class MainWindow(QMainWindow):
         # Export buttons
         er = QHBoxLayout()
         er.setSpacing(8)
-        for txt, fn in [("Export CSV", self.export_csv),
-                        ("Export TXT", self.export_txt),
-                        ("Clear",      self.clear)]:
+        for txt, fn in [
+            ("Export CSV", self.export_csv),
+            ("Export TXT", self.export_txt),
+            ("Clear", self.clear),
+        ]:
             b = QPushButton(txt)
             b.clicked.connect(fn)
             b.setFixedHeight(32)
@@ -259,314 +275,6 @@ class MainWindow(QMainWindow):
             f"Async: {'✓' if HAS_AIOHTTP else '✗'}  "
             f"DNS verify: {'✓' if HAS_DNS else '✗'}"
         )
-
-    # ── Search controls ───────────────────────────────────────────────────────
-
-    def start_search(self):
-        if self.worker and self.worker.isRunning():
-            return
-        loc = self.loc.currentText().strip()
-
-        # Location validation
-        if not loc:
-            QMessageBox.warning(self, "Invalid Location", "Enter a US city, state, or ZIP code.")
-            return
-        if len(loc) < 3:
-            QMessageBox.warning(self, "Invalid Location",
-                                "Location is too short. Try something like \"Detroit, MI\" or \"48091\".")
-            return
-        if not re.search(r'[a-zA-Z]', loc):
-            QMessageBox.warning(self, "Invalid Location",
-                                "Location must contain letters.\n"
-                                "Examples: \"Warren, MI 48091\", \"Chicago, IL\", \"Detroit\"")
-            return
-
-        trades  = [t for t, cb in self.chk_t.items() if cb.isChecked()]
-        sources = [s for s, cb in self.chk_s.items() if cb.isChecked()]
-        if not trades:
-            QMessageBox.warning(self, "Error", "Select at least one trade.")
-            return
-        if not sources:
-            QMessageBox.warning(self, "Error", "Select at least one source.")
-            return
-
-        self.rows.clear()
-        self.table.setRowCount(0)
-        for c in self.stats.values():
-            c.set(0)
-        self.tf.setCurrentIndex(0)
-        self.sf2.setCurrentIndex(0)
-        self.nf.clear()
-        self.sbtn.setEnabled(False)
-        self.xbtn.setEnabled(True)
-        self.pbar.setValue(0)
-        self._reset_source_status(sources)
-
-        SEARCH_HISTORY.save(loc)
-        _hist   = SEARCH_HISTORY.load()
-        current = self.loc.currentText()
-        self.loc.clear()
-        for h in _hist:
-            self.loc.addItem(h)
-        self.loc.setCurrentText(current)
-
-        if self.chk_proxy.isChecked():
-            PROXY_MGR.enable()
-        else:
-            PROXY_MGR.disable()
-
-        # Start elapsed timer
-        self._search_start = time.time()
-        self._warned_5min  = False
-        self._timer.start()
-
-        self.worker = SearchWorker(
-            loc, trades, int(self.per.currentText()),
-            int(self.rmap[self.radius.currentText()]),
-            self.chk_enrich.isChecked(), sources,
-        )
-        self.worker.progress.connect(self._on_progress)
-        self.worker.result.connect(self._add_row)
-        self.worker.finished.connect(self._on_done)
-        self.worker.source_done.connect(self._on_source_done)
-        self.worker.start()
-
-    def stop_search(self):
-        if self.worker:
-            self.worker.stop()
-        self.xbtn.setEnabled(False)
-
-    def _on_progress(self, p: int, msg: str):
-        self.pbar.setValue(p)
-        self.statusBar().showMessage(msg)
-        # Mark source as running whenever it starts — even mid-search on trade 2+
-        for src in self._src_labels:
-            if f"[{src}]" in msg and "Searching" in msg:
-                lbl = self._src_labels[src]
-                prior = self._src_counts.get(src, 0)
-                suffix = f" {prior}" if prior else ""
-                lbl.setText(f"{src}: ⏳{suffix}")
-                lbl.setStyleSheet(_SRC_RUN_STYLE)
-                break
-
-    def _on_done(self, ok: bool, err: str):
-        self._timer.stop()
-        self._elapsed_lbl.setText("")
-        self.pbar.setValue(100)
-        self.sbtn.setEnabled(True)
-        self.xbtn.setEnabled(False)
-        if ok:
-            counts = {t: sum(1 for r in self.rows if r.trade == t) for t in TRADE_COLORS}
-            self.statusBar().showMessage(
-                f"Done — {len(self.rows)} contractors  |  " +
-                "  ".join(f"{t}:{counts[t]}" for t in TRADE_COLORS)
-            )
-        else:
-            QMessageBox.critical(self, "Search Failed", err)
-
-    def _tick_elapsed(self):
-        elapsed = int(time.time() - self._search_start)
-        mins, secs = divmod(elapsed, 60)
-        self._elapsed_lbl.setText(f"⏱ {mins}:{secs:02d}")
-        if elapsed >= 300 and not self._warned_5min:
-            self._warned_5min = True
-            self._elapsed_lbl.setStyleSheet(_WARN_ELAPSED)
-            self.statusBar().showMessage(
-                "⚠ Search running 5+ min — normal for 3 trades with enrichment. Still working..."
-            )
-
-    def _reset_source_status(self, active_sources: list[str]):
-        self._src_counts = {}
-        for src, lbl in self._src_labels.items():
-            if src in active_sources:
-                lbl.setText(f"{src}: —")
-                lbl.setStyleSheet(_SRC_IDLE_STYLE)
-            else:
-                lbl.setText(f"{src}: skip")
-                lbl.setStyleSheet(_SRC_IDLE_STYLE)
-
-    def _on_source_done(self, src: str, trade: str, count: int):
-        lbl = self._src_labels.get(src)
-        if not lbl:
-            return
-        if count >= 0:
-            self._src_counts[src] = self._src_counts.get(src, 0) + count
-            total = self._src_counts[src]
-            lbl.setText(f"{src}: ✓ {total}")
-            lbl.setStyleSheet(_SRC_OK_STYLE)
-        else:
-            # Error for this (src, trade) — only mark failed if no results at all
-            if self._src_counts.get(src, 0) == 0:
-                lbl.setText(f"{src}: ✗")
-                lbl.setStyleSheet(_SRC_ERR_STYLE)
-
-    # ── Table ─────────────────────────────────────────────────────────────────
-
-    def _add_row(self, c: Contractor):
-        self.rows.append(c)
-        trade  = self.tf.currentText()
-        src    = self.sf2.currentText()
-        name   = self.nf.text().strip().lower()
-        if (trade == "All" or c.trade == trade) \
-                and (src == "All Sources" or c.source == src) \
-                and (not name or name in c.name.lower()):
-            row = self.table.rowCount()
-            self.table.insertRow(row)
-            self._fill_row(row, c)
-        self._update_stats()
-
-    def _fill_row(self, row: int, c: Contractor):
-        bg   = QColor("#161925") if row % 2 == 1 else QColor("#1a1d27")
-        vc   = VERIFY_COLORS.get(c.email_status, "#94a3b8")
-        vi   = f"{VERIFY_ICONS.get(c.email_status, '')} {c.email_status}".strip()
-        note = email_role_warning(c.email) if c.email else ""
-        vals = [
-            (c.trade,   TRADE_COLORS.get(c.trade,   "#e2e8f0"), True),
-            (c.source,  SOURCE_COLORS.get(c.source, "#94a3b8"), True),
-            (c.name,    "#e2e8f0", False),
-            (c.phone,   "#10b981" if c.phone else "#94a3b8", False),
-            (c.email,   "#93c5fd" if c.email else "#94a3b8", False),
-            (vi,        vc, True),
-            (c.website, "#93c5fd", False),
-            (c.address, "#e2e8f0", False),
-            (note,      "#f59e0b" if note else "#94a3b8", False),
-        ]
-        for col, (val, color, bold) in enumerate(vals):
-            item = QTableWidgetItem(val)
-            item.setForeground(QBrush(QColor(color)))
-            item.setBackground(QBrush(bg))
-            if bold:
-                item.setFont(QFont("Segoe UI", 11, QFont.Bold))
-            self.table.setItem(row, col, item)
-        self.table.setRowHeight(row, 30)
-
-    def _update_stats(self):
-        for t in TRADE_COLORS:
-            self.stats[t].set(sum(1 for r in self.rows if r.trade == t))
-        self.stats["Total"].set(len(self.rows))
-
-    def _filter(self):
-        trade = self.tf.currentText()
-        src   = self.sf2.currentText()
-        name  = self.nf.text().strip().lower()
-        self.table.setRowCount(0)
-        for i, c in enumerate(self.rows):
-            if trade != "All" and c.trade != trade:
-                continue
-            if src != "All Sources" and c.source != src:
-                continue
-            if name and name not in c.name.lower():
-                continue
-            row = self.table.rowCount()
-            self.table.insertRow(row)
-            self._fill_row(row, c)
-
-    # ── Email verify ──────────────────────────────────────────────────────────
-
-    def start_verify(self):
-        if not self.rows:
-            QMessageBox.information(self, "", "Run a search first.")
-            return
-        self.vbtn.setEnabled(False)
-        self.pbar.setValue(0)
-        self.vworker = VerifyWorker(self.rows)
-        self.vworker.progress.connect(lambda p, m: (
-            self.pbar.setValue(p), self.statusBar().showMessage(m)))
-        self.vworker.result.connect(self._on_verify)
-        self.vworker.finished.connect(self._on_verify_done)
-        self.vworker.start()
-
-    def _on_verify(self, idx: int, status: str, reason: str):
-        if idx < self.table.rowCount():
-            vi   = f"{VERIFY_ICONS.get(status, '')} {status}".strip()
-            item = QTableWidgetItem(vi)
-            item.setForeground(QBrush(QColor(VERIFY_COLORS.get(status, "#94a3b8"))))
-            self.table.setItem(idx, 5, item)
-
-    def _on_verify_done(self):
-        self.pbar.setValue(100)
-        self.vbtn.setEnabled(True)
-        v   = sum(1 for r in self.rows if r.email_status == "valid")
-        inv = sum(1 for r in self.rows if r.email_status == "invalid")
-        unk = sum(1 for r in self.rows if r.email_status == "unknown")
-        self.statusBar().showMessage(
-            f"Email verify done  —  ✅ Valid:{v}  ❌ Invalid:{inv}  ❓ Unknown:{unk}"
-        )
-
-    # ── Export ────────────────────────────────────────────────────────────────
-
-    def export_sheets(self):
-        if not self.rows:
-            return
-        tmp    = tempfile.NamedTemporaryFile(
-            delete=False, suffix=".csv", mode="w", newline="", encoding="utf-8")
-        fields = ["trade", "source", "name", "phone", "email", "website", "address"]
-        w      = csv.DictWriter(tmp, fieldnames=fields)
-        w.writeheader()
-        for c in self.rows:
-            d = asdict(c)
-            w.writerow({k: d.get(k, "") for k in fields})
-        tmp.close()
-        dlg = QDialog(self)
-        dlg.setWindowTitle("Export to Google Sheets")
-        dlg.resize(460, 260)
-        lay = QVBoxLayout(dlg)
-        lay.addWidget(QLabel("<b>CSV saved! Import steps:</b>"))
-        te = QTextEdit()
-        te.setReadOnly(True)
-        te.setPlainText(
-            f"File: {tmp.name}\n\n"
-            "1. Google Sheets will open in your browser\n"
-            "2. Click  File → Import → Upload tab\n"
-            f"3. Select file: {os.path.basename(tmp.name)}\n"
-            "4. Choose 'Replace spreadsheet' → Import data"
-        )
-        lay.addWidget(te)
-        bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        bb.accepted.connect(dlg.accept)
-        bb.rejected.connect(dlg.reject)
-        lay.addWidget(bb)
-        if dlg.exec() == QDialog.Accepted:
-            webbrowser.open("https://sheets.new")
-
-    def export_csv(self):
-        if not self.rows:
-            return
-        path, _ = QFileDialog.getSaveFileName(
-            self, "Save CSV", "contractors.csv", "CSV (*.csv)")
-        if not path:
-            return
-        fields = ["trade", "source", "name", "phone", "email", "website", "address"]
-        with open(path, "w", newline="", encoding="utf-8") as f:
-            w = csv.DictWriter(f, fieldnames=fields)
-            w.writeheader()
-            for c in self.rows:
-                d = asdict(c)
-                w.writerow({k: d.get(k, "") for k in fields})
-        self.statusBar().showMessage(f"Saved {len(self.rows)} rows → {path}")
-
-    def export_txt(self):
-        if not self.rows:
-            return
-        path, _ = QFileDialog.getSaveFileName(
-            self, "Save TXT", "contractors.txt", "Text (*.txt)")
-        if not path:
-            return
-        with open(path, "w", encoding="utf-8") as f:
-            for trade in ["HVAC", "Electrical", "Excavating"]:
-                g = [c for c in self.rows if c.trade == trade]
-                if not g:
-                    continue
-                f.write(f"\n{'='*50}\n{trade.upper()} ({len(g)})\n{'='*50}\n")
-                for i, c in enumerate(g, 1):
-                    f.write(
-                        f"\n{i}. {c.name}  [{c.source}]\n"
-                        f"   Phone:   {c.phone or 'N/A'}\n"
-                        f"   Email:   {c.email or 'N/A'}\n"
-                        f"   Website: {c.website or 'N/A'}\n"
-                        f"   Address: {c.address or 'N/A'}\n"
-                    )
-        self.statusBar().showMessage(f"Saved → {path}")
 
     def clear(self):
         self.rows.clear()
