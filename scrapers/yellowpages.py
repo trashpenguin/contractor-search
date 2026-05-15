@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 import logging
+import re
 import time
 from urllib.parse import quote_plus
 
@@ -11,10 +13,73 @@ from models import Contractor
 logger = logging.getLogger("ContractorFinder")
 
 
+def _parse_yp_nextdata(html: str) -> list[Contractor]:
+    """Extract listings from embedded __NEXT_DATA__ JSON (YP Next.js pages)."""
+    m = re.search(
+        r'<script[^>]+id=["\']__NEXT_DATA__["\'][^>]*>\s*(\{.*?\})\s*</script>',
+        html,
+        re.DOTALL,
+    )
+    if not m:
+        return []
+    try:
+        data = json.loads(m.group(1))
+    except Exception:
+        return []
+
+    # Walk several possible paths YP uses in pageProps
+    pp = data.get("props", {}).get("pageProps", {})
+    listings_raw = (
+        pp.get("listings")
+        or pp.get("searchResults", {}).get("listings")
+        or pp.get("results")
+        or pp.get("businesses")
+        or []
+    )
+    if not listings_raw:
+        return []
+
+    out: list[Contractor] = []
+    for biz in listings_raw:
+        if not isinstance(biz, dict):
+            continue
+        name = biz.get("businessName") or biz.get("name") or biz.get("business_name") or ""
+        if not name or len(name) < 2:
+            continue
+        phone = biz.get("phone") or biz.get("phoneNumber") or biz.get("primaryPhone") or ""
+        website = biz.get("website") or biz.get("websiteUrl") or biz.get("url") or ""
+        if website and "yellowpages" in website:
+            website = ""
+        addr_obj = biz.get("address") or biz.get("location") or {}
+        if isinstance(addr_obj, dict):
+            parts = [
+                addr_obj.get("street") or addr_obj.get("streetAddress") or "",
+                addr_obj.get("city") or "",
+                addr_obj.get("state") or addr_obj.get("stateCode") or "",
+                addr_obj.get("zip") or addr_obj.get("postalCode") or "",
+            ]
+            address = ", ".join(p for p in parts if p)
+        else:
+            address = str(addr_obj) if addr_obj else ""
+        out.append(
+            Contractor(
+                trade="",
+                name=name,
+                phone=phone,
+                website=website,
+                address=address,
+                source="YellowPages",
+            )
+        )
+    logger.info(f"[YP] __NEXT_DATA__: {len(out)} listings")
+    return out
+
+
 def scrape_yellowpages(trade: str, location: str, limit: int) -> list[Contractor]:
     """
     Uses ONE persistent StealthySession browser for all YP pages.
     Retries up to 3 times on Cloudflare blocks.
+    Tries __NEXT_DATA__ JSON extraction first, falls back to CSS selectors.
     """
     out: list[Contractor] = []
     term = TRADE_KW[trade]["yp"]
@@ -54,11 +119,13 @@ def scrape_yellowpages(trade: str, location: str, limit: int) -> list[Contractor
                         f"?search_terms={term}&geo_location_terms={loc}&page={pg}"
                     )
                     try:
-                        resp = session.fetch(url, wait=5000)
+                        resp = session.fetch(url, wait=8000)
                         html = resp.body or ""
                     except Exception as e:
                         logger.info(f"[YP] page {pg} error: {type(e).__name__}")
                         break
+                    if isinstance(html, bytes):
+                        html = html.decode("utf-8", errors="ignore")
                     if (
                         resp.status in (403, 429, 503, 530)
                         or not html
@@ -71,18 +138,39 @@ def scrape_yellowpages(trade: str, location: str, limit: int) -> list[Contractor
                         )
                         time.sleep(15 + attempt * 10)
                         break
+
+                    # --- Try JSON extraction first ---
+                    json_results = _parse_yp_nextdata(html)
+                    if json_results:
+                        for c in json_results:
+                            if len(out) >= limit:
+                                break
+                            c.trade = trade
+                            out.append(c)
+                        logger.info(
+                            f"[YP] page {pg}: {len(json_results)} from JSON (total {len(out)})"
+                        )
+                        time.sleep(1.5)
+                        continue
+
+                    # --- CSS selector fallback ---
                     page = Adaptor(html)
                     cards = (
                         page.css("div.srp-listing")
                         or page.css("div.result")
                         or page.css("div[class*='srp-listing']")
+                        or page.css("div[class*='listing-content']")
                         or page.css("div[class*='listing']")
                         or page.css("li[class*='result']")
                         or page.css("div[class*='business-result']")
+                        or page.css("[data-listing-id]")
+                        or page.css("[data-analytics*='listing']")
+                        or page.css("[data-analytics*='business']")
                         or page.css("article")
+                        or page.css("section.result")
                     )
                     if not cards:
-                        snippet = html[:400].replace("\n", " ").strip()
+                        snippet = html[:1500].replace("\n", " ").strip()
                         logger.info(
                             f"[YP] No cards on page {pg} (status {resp.status}, "
                             f"html_len={len(html)}, snippet={snippet!r})"
@@ -101,6 +189,8 @@ def scrape_yellowpages(trade: str, location: str, limit: int) -> list[Contractor
                             ".business-name span",
                             "a[class*='business'] span",
                             "h3 a",
+                            "h2",
+                            "h3",
                         ]:
                             els = card.css(sel)
                             if els:
