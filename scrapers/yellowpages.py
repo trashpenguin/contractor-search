@@ -69,6 +69,7 @@ def scrape_yellowpages(trade: str, location: str, limit: int) -> list[Contractor
                         if len(out) >= limit:
                             break
                         name = ""
+                        profile_url = ""
                         for sel in [
                             "h2.n a",
                             "a.business-name",
@@ -80,6 +81,13 @@ def scrape_yellowpages(trade: str, location: str, limit: int) -> list[Contractor
                             els = card.css(sel)
                             if els:
                                 name = els[0].text.strip()
+                                href = els[0].attrib.get("href", "")
+                                if href and "yellowpages.com" in href:
+                                    profile_url = (
+                                        href
+                                        if href.startswith("http")
+                                        else f"https://www.yellowpages.com{href}"
+                                    )
                                 if name:
                                     break
                         if not name or len(name) < 2:
@@ -117,21 +125,35 @@ def scrape_yellowpages(trade: str, location: str, limit: int) -> list[Contractor
                             if els:
                                 address = els[0].get_all_text(separator=" ").strip()
                                 break
-                        out.append(
-                            Contractor(
-                                trade=trade,
-                                name=name,
-                                phone=phone,
-                                website=website,
-                                address=address,
-                                source="YellowPages",
-                            )
+                        c = Contractor(
+                            trade=trade,
+                            name=name,
+                            phone=phone,
+                            website=website,
+                            address=address,
+                            source="YellowPages",
                         )
+                        c._yp_profile_url = profile_url  # type: ignore[attr-defined]
+                        out.append(c)
                         found += 1
                     logger.info(f"[YP] page {pg}: {found} found (total {len(out)})")
                     if found == 0:
                         break
                     time.sleep(1.5)
+                # Fetch individual profile pages for any result still missing a phone
+                for contractor in out:
+                    _pu = getattr(contractor, "_yp_profile_url", "")
+                    if _pu and not contractor.phone:
+                        try:
+                            resp2 = session.fetch(_pu, wait=3000)
+                            html2 = resp2.body or ""
+                            if html2 and not _is_cloudflare(html2):
+                                m = PHONE_RE.search(Adaptor(html2).get_all_text(separator=" "))
+                                if m:
+                                    contractor.phone = m.group(1)
+                        except Exception:
+                            pass
+                        time.sleep(0.5)
         except Exception as e:
             logger.info(f"[YP] Session error attempt {attempt+1}: {type(e).__name__}: {e}")
             time.sleep(2)
