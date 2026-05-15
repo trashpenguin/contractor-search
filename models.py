@@ -14,3 +14,7 @@ class Contractor:
     source: str = ""
     email_status: str = ""
     place_id: str = ""
+
+    @property
+    def quality_score(self) -> int:
+        return bool(self.phone) + bool(self.email) + bool(self.website)
