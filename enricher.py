@@ -4,6 +4,7 @@ import logging
 from urllib.parse import quote_plus, urljoin, urlparse
 
 from compat import HAS_SCRAPLING, HAS_AIOHTTP, HAS_DNS, Adaptor
+from config import DDG_CAP, SEM_DDG, SEM_GOOGLE, SEM_YELLOWPAGES, SEM_DEFAULT
 from constants import SCRAPE_SKIP, SKIP_DOMAINS, _FATAL_PROXY_ERRORS, EMAIL_RE
 from cache import CACHE
 from proxy import PROXY_MGR
@@ -186,10 +187,10 @@ async def enrich_batch_async(contractors: list[Contractor], city_hint: str,
     import aiohttp
 
     _sems = {
-        "duckduckgo": asyncio.Semaphore(2),
-        "google":     asyncio.Semaphore(1),
-        "yellowpages": asyncio.Semaphore(2),
-        "default":    asyncio.Semaphore(6),
+        "duckduckgo":  asyncio.Semaphore(SEM_DDG),
+        "google":      asyncio.Semaphore(SEM_GOOGLE),
+        "yellowpages": asyncio.Semaphore(SEM_YELLOWPAGES),
+        "default":     asyncio.Semaphore(SEM_DEFAULT),
     }
 
     def _get_sem(url: str):
@@ -238,7 +239,7 @@ async def enrich_batch_async(contractors: list[Contractor], city_hint: str,
     # Counter is shared across all batch calls for the same trade (passed in from
     # search.py) so the 8-call cap is per-trade, not per-15-contractor-batch.
     ddg_count = _ddg_state if _ddg_state is not None else [0]
-    DDG_CAP   = 8     # max DDG website lookups per trade to avoid rate-limiting
+    # DDG_CAP from config — max DDG lookups per trade to avoid rate-limiting
 
     async def enrich_one(c: Contractor, session):
         async with _get_sem(c.website or ""):

@@ -4,6 +4,7 @@ import threading
 from urllib.parse import quote_plus
 
 from compat import HAS_AIOHTTP
+from config import ENRICH_BATCH_SIZE, DDG_CAP
 from constants import SKIP_DOMAINS
 from enricher import enrich_batch_async, scrape_website, dedup
 from extractor import _ok_email, _clean_email
@@ -88,11 +89,11 @@ def run_search(
                     c.email = decoded
 
         if enrich and collected:
-            BATCH         = 15
+            BATCH         = ENRICH_BATCH_SIZE
             n_total       = len(collected)
             scrape_end    = int(trade_base + trade_alloc * scrape_frac)
             enrich_alloc  = trade_alloc * (1.0 - scrape_frac)
-            ddg_state     = [0]  # shared across all batches for this trade (cap = 8 total)
+            ddg_state     = [0]  # shared counter across batches; capped at DDG_CAP per trade
             for batch_start in range(0, n_total, BATCH):
                 if stop_ev.is_set():
                     break

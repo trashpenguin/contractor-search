@@ -1,6 +1,7 @@
 from __future__ import annotations
 import hashlib, json, os, sqlite3, threading, time
 import logging
+from config import TTL_CONTACT as _TTL_CONTACT, TTL_DDG as _TTL_DDG
 
 logger = logging.getLogger("ContractorFinder")
 
@@ -38,8 +39,8 @@ class ContactCache:
     TTL: 7 days for contact data, 1 day for DDG results.
     """
     DB_PATH     = os.path.join(os.path.expanduser("~"), ".contractor_finder_cache.db")
-    TTL_CONTACT = 7 * 86400
-    TTL_DDG     = 1 * 86400
+    TTL_CONTACT = _TTL_CONTACT
+    TTL_DDG     = _TTL_DDG
 
     def __init__(self):
         self._lock = threading.Lock()
