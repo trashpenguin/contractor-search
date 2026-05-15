@@ -1,16 +1,19 @@
 from __future__ import annotations
-import asyncio, json, re
+
+import asyncio
 import logging
+import re
 from urllib.parse import quote_plus, urljoin, urlparse
 
-from compat import HAS_SCRAPLING, HAS_AIOHTTP, HAS_DNS, Adaptor
-from config import DDG_CAP, SEM_DDG, SEM_GOOGLE, SEM_YELLOWPAGES, SEM_DEFAULT
-from constants import SCRAPE_SKIP, SKIP_DOMAINS, _FATAL_PROXY_ERRORS, EMAIL_RE
 from cache import CACHE
-from proxy import PROXY_MGR
+from compat import HAS_AIOHTTP, HAS_DNS, HAS_SCRAPLING, Adaptor
+from config import DDG_CAP, SEM_DDG, SEM_DEFAULT, SEM_GOOGLE, SEM_YELLOWPAGES
+from constants import _FATAL_PROXY_ERRORS, SCRAPE_SKIP, SKIP_DOMAINS
+from email_hunter import _ddg_email_hunt, _scan_js_for_email, _scan_sitemap_for_email, _whois_email
+from extractor import _clean_email, _ok_email, extract_contacts
 from http_client import http_get
-from extractor import extract_contacts, _ok_email, _clean_email
 from models import Contractor
+from proxy import PROXY_MGR
 
 logger = logging.getLogger("ContractorFinder")
 
@@ -23,10 +26,24 @@ _AIOHTTP_HEADERS = {
 
 # ── Deduplication helpers ─────────────────────────────────────────────────────
 
+
 def _name_key(name: str) -> str:
     s = name.lower()
-    for suf in [" llc", " inc", " co", " corp", " ltd", " services", " company",
-                " heating", " cooling", " hvac", " electric", " plumbing", " excavating"]:
+    for suf in [
+        " llc",
+        " inc",
+        " co",
+        " corp",
+        " ltd",
+        " services",
+        " company",
+        " heating",
+        " cooling",
+        " hvac",
+        " electric",
+        " plumbing",
+        " excavating",
+    ]:
         s = s.replace(suf, " ")
     return re.sub(r"[^a-z0-9]", "", s).strip()
 
@@ -40,7 +57,7 @@ def _similar(a: str, b: str) -> bool:
     short, long = (ka, kb) if len(ka) <= len(kb) else (kb, ka)
     if len(short) >= 8 and short in long:
         return True
-    match   = sum(1 for x, y in zip(ka, kb) if x == y)
+    match = sum(1 for x, y in zip(ka, kb) if x == y)
     min_len = min(len(ka), len(kb))
     return min_len >= 6 and match / min_len >= 0.85
 
@@ -72,18 +89,22 @@ def dedup(rows: list[Contractor]) -> list[Contractor]:
     )
     out: list[Contractor] = []
     for r in sorted_rows:
-        is_dup   = False
-        r_phone  = _phone_key(r.phone)
+        is_dup = False
+        r_phone = _phone_key(r.phone)
         r_domain = _domain_key(r.website)
         for ex in out:
-            name_match   = _similar(r.name, ex.name)
-            phone_match  = bool(r_phone  and r_phone  == _phone_key(ex.phone))
+            name_match = _similar(r.name, ex.name)
+            phone_match = bool(r_phone and r_phone == _phone_key(ex.phone))
             domain_match = bool(r_domain and r_domain == _domain_key(ex.website))
             if name_match or phone_match or domain_match:
-                if not ex.phone   and r.phone:   ex.phone   = r.phone
-                if not ex.email   and r.email:   ex.email   = r.email
-                if not ex.website and r.website: ex.website = r.website
-                if not ex.address and r.address: ex.address = r.address
+                if not ex.phone and r.phone:
+                    ex.phone = r.phone
+                if not ex.email and r.email:
+                    ex.email = r.email
+                if not ex.website and r.website:
+                    ex.website = r.website
+                if not ex.address and r.address:
+                    ex.address = r.address
                 is_dup = True
                 break
         if not is_dup:
@@ -93,12 +114,13 @@ def dedup(rows: list[Contractor]) -> list[Contractor]:
 
 # ── Async website scraping ────────────────────────────────────────────────────
 
+
 async def _fetch_one(session, url: str, timeout, use_proxy: bool = False) -> str:
     """
     Fetch one URL with the shared aiohttp session.
     ssl=False only when proxied; direct connections keep SSL validation.
     """
-    proxy    = PROXY_MGR.get_for(url) if (use_proxy and PROXY_MGR.ready) else None
+    proxy = PROXY_MGR.get_for(url) if (use_proxy and PROXY_MGR.ready) else None
     ssl_mode = False if proxy else True
     try:
         kwargs: dict = {"timeout": timeout, "ssl": ssl_mode, "allow_redirects": True}
@@ -120,8 +142,9 @@ async def _fetch_one(session, url: str, timeout, use_proxy: bool = False) -> str
             return ""
         if not proxy and ("ssl" in err.lower() or "certificate" in err.lower()):
             try:
-                async with session.get(url, timeout=timeout, ssl=False,
-                                       allow_redirects=True) as resp:
+                async with session.get(
+                    url, timeout=timeout, ssl=False, allow_redirects=True
+                ) as resp:
                     if resp.status in (200, 201, 206):
                         return await resp.text(errors="ignore")
             except Exception:
@@ -144,7 +167,7 @@ async def async_scrape_website(url: str, session, timeout) -> tuple[str, str]:
     if not email:
         email = _scan_js_for_email(url, html)
     if (not email or not phone) and HAS_SCRAPLING:
-        page  = Adaptor(html)
+        page = Adaptor(html)
         hints = ("contact", "about", "team", "reach", "support")
         domain = urlparse(url).netloc
         sub_urls = []
@@ -158,11 +181,20 @@ async def async_scrape_website(url: str, session, timeout) -> tuple[str, str]:
                 continue
             if any(h in p.path.lower() for h in hints):
                 sub_urls.append(abs_url)
-        CONTACT_PATHS = ["/contact", "/contact-us", "/about", "/about-us",
-                         "/team", "/company", "/support", "/reach-us", "/get-in-touch"]
+        CONTACT_PATHS = [
+            "/contact",
+            "/contact-us",
+            "/about",
+            "/about-us",
+            "/team",
+            "/company",
+            "/support",
+            "/reach-us",
+            "/get-in-touch",
+        ]
         base = f"{urlparse(url).scheme}://{urlparse(url).netloc}"
         direct_pages = [base + path for path in CONTACT_PATHS if base + path not in sub_urls]
-        for sub_url in (sub_urls[:2] + direct_pages[:4]):
+        for sub_url in sub_urls[:2] + direct_pages[:4]:
             if email and phone:
                 break
             sub_html = await _fetch_one(session, sub_url, timeout)
@@ -175,9 +207,12 @@ async def async_scrape_website(url: str, session, timeout) -> tuple[str, str]:
     return email, phone
 
 
-async def enrich_batch_async(contractors: list[Contractor], city_hint: str,
-                             location: str = "",
-                             _ddg_state: list | None = None) -> None:
+async def enrich_batch_async(
+    contractors: list[Contractor],
+    city_hint: str,
+    location: str = "",
+    _ddg_state: list | None = None,
+) -> None:
     """
     Async parallel enrichment using ONE shared aiohttp.ClientSession.
     Domain-specific semaphores prevent hammering any single target.
@@ -187,10 +222,10 @@ async def enrich_batch_async(contractors: list[Contractor], city_hint: str,
     import aiohttp
 
     _sems = {
-        "duckduckgo":  asyncio.Semaphore(SEM_DDG),
-        "google":      asyncio.Semaphore(SEM_GOOGLE),
+        "duckduckgo": asyncio.Semaphore(SEM_DDG),
+        "google": asyncio.Semaphore(SEM_GOOGLE),
         "yellowpages": asyncio.Semaphore(SEM_YELLOWPAGES),
-        "default":     asyncio.Semaphore(SEM_DEFAULT),
+        "default": asyncio.Semaphore(SEM_DEFAULT),
     }
 
     def _get_sem(url: str):
@@ -201,11 +236,12 @@ async def enrich_batch_async(contractors: list[Contractor], city_hint: str,
 
     # 8s total / 4s connect — tight enough to skip hung sites, loose enough for slow hosting
     timeout = aiohttp.ClientTimeout(total=8, connect=4)
-    conn    = aiohttp.TCPConnector(limit=20, ttl_dns_cache=300,
-                                   force_close=False, enable_cleanup_closed=True)
+    conn = aiohttp.TCPConnector(
+        limit=20, ttl_dns_cache=300, force_close=False, enable_cleanup_closed=True
+    )
 
     async def _guess_domain(name: str, session) -> str:
-        clean  = re.sub(r"[^a-z0-9]", "", name.lower())
+        clean = re.sub(r"[^a-z0-9]", "", name.lower())
         if len(clean) < 3:
             return ""
         city_c = re.sub(r"[^a-z0-9]", "", city_hint.lower())
@@ -222,21 +258,21 @@ async def enrich_batch_async(contractors: list[Contractor], city_hint: str,
         t_short = aiohttp.ClientTimeout(total=3)
         for url in candidates[:5]:  # check first 5 guesses; beyond that accuracy drops
             try:
-                async with session.head(url, timeout=t_short, ssl=True,
-                                        allow_redirects=True) as r:
+                async with session.head(url, timeout=t_short, ssl=True, allow_redirects=True) as r:
                     if r.status in (200, 301, 302, 304):
                         return str(r.url)
             except Exception:
                 try:
-                    async with session.head(url, timeout=t_short, ssl=False,
-                                            allow_redirects=True) as r:
+                    async with session.head(
+                        url, timeout=t_short, ssl=False, allow_redirects=True
+                    ) as r:
                         if r.status in (200, 301, 302, 304):
                             return str(r.url)
                 except Exception:
                     pass
         return ""
 
-    loc_hint  = location or city_hint
+    loc_hint = location or city_hint
     # Counter is shared across all batch calls for the same trade (passed in from
     # search.py) so the 8-call cap is per-trade, not per-15-contractor-batch.
     ddg_count = _ddg_state if _ddg_state is not None else [0]
@@ -256,6 +292,7 @@ async def enrich_batch_async(contractors: list[Contractor], city_hint: str,
                 ddg_count[0] += 1
                 await asyncio.sleep(0.3)
                 from scrapers.ddg import ddg_search
+
                 q = quote_plus(f'"{c.name}" {loc_hint} contractor')
                 for _, url, _ in ddg_search(q, pages=1):
                     if url.startswith("http") and not any(d in url for d in SKIP_DOMAINS):
@@ -263,14 +300,16 @@ async def enrich_batch_async(contractors: list[Contractor], city_hint: str,
                         break
             # Step 3: scrape website (cache first)
             if c.website and (not c.email or not c.phone):
-                cache_key      = _domain_key(c.website)
+                cache_key = _domain_key(c.website)
                 cached_contact = CACHE.get_contact(cache_key) if cache_key else None
                 if cached_contact:
                     if not c.email:
                         raw_e = cached_contact.get("email", "")
                         c.email = _clean_email(raw_e) if raw_e else ""
-                    if not c.phone:   c.phone   = cached_contact.get("phone", "")
-                    if not c.website: c.website = cached_contact.get("website", "")
+                    if not c.phone:
+                        c.phone = cached_contact.get("phone", "")
+                    if not c.website:
+                        c.website = cached_contact.get("website", "")
                 else:
                     we, wp = await async_scrape_website(c.website, session, timeout)
                     if not c.email:
@@ -286,16 +325,24 @@ async def enrich_batch_async(contractors: list[Contractor], city_hint: str,
                     has_mx = True
                     if HAS_DNS:
                         import dns.resolver as _dns
+
                         try:
                             await asyncio.to_thread(_dns.resolve, domain, "MX")
                         except Exception:
                             has_mx = False
                     if has_mx:
-                        for prefix in ["info", "contact", "service", "office",
-                                       "admin", "support", "hello"]:
+                        for prefix in [
+                            "info",
+                            "contact",
+                            "service",
+                            "office",
+                            "admin",
+                            "support",
+                            "hello",
+                        ]:
                             candidate = f"{prefix}@{domain}"
                             if _ok_email(candidate):
-                                c.email        = candidate
+                                c.email = candidate
                                 c.email_status = "guessed"
                                 break
 
@@ -312,115 +359,6 @@ async def enrich_batch_async(contractors: list[Contractor], city_hint: str,
                 logger.debug(f"[Enrich] task error: {type(e).__name__}: {e}")
 
 
-# ── Deep email hunting strategies ────────────────────────────────────────────
-
-def _scan_js_for_email(url: str, html: str) -> str:
-    """
-    Download every same-domain <script src> file and scan for email addresses.
-    Site builders (Wix, Squarespace, GoDaddy) often embed the contact form
-    destination email inside a JS config file even when hiding it from HTML.
-    """
-    if not html or not HAS_SCRAPLING:
-        return ""
-    domain = urlparse(url).netloc
-    page   = Adaptor(html)
-    checked = 0
-    for script in page.css("script[src]"):
-        src = script.attrib.get("src", "")
-        if not src:
-            continue
-        abs_src = urljoin(url, src)
-        # Only scan scripts served from the same domain — skip CDN/analytics
-        if urlparse(abs_src).netloc not in ("", domain):
-            continue
-        if checked >= 5:   # cap at 5 same-domain scripts — beyond that it's CDN noise
-            break
-        checked += 1
-        js = http_get(abs_src, timeout=5)
-        if not js or len(js) > 500_000:   # skip huge bundles
-            continue
-        for raw in EMAIL_RE.findall(js):
-            e = _clean_email(raw)
-            if _ok_email(e):
-                logger.debug(f"[JS] email found in {abs_src[:60]}")
-                return e
-    return ""
-
-
-def _scan_sitemap_for_email(url: str) -> str:
-    """
-    Fetch /sitemap.xml (or the URL in robots.txt), find contact/about pages,
-    and scan each for an email address. Many sites hide the email on a staff
-    or about page that isn't linked from the contact form page.
-    """
-    base = f"{urlparse(url).scheme}://{urlparse(url).netloc}"
-    sitemap_content = http_get(base + "/sitemap.xml", timeout=6)
-    if not sitemap_content:
-        robots = http_get(base + "/robots.txt", timeout=4)
-        if robots:
-            m = re.search(r"Sitemap:\s*(https?://\S+)", robots, re.I)
-            if m:
-                sitemap_content = http_get(m.group(1), timeout=6)
-    if not sitemap_content:
-        return ""
-    all_urls = re.findall(r"<loc>(https?://[^<]+)</loc>", sitemap_content)
-    priority_words = ("contact", "about", "team", "staff", "reach", "people")
-    priority_urls  = [u for u in all_urls
-                      if any(w in u.lower() for w in priority_words)]
-    for page_url in priority_urls[:5]:
-        html = http_get(page_url, timeout=8)
-        if not html:
-            continue
-        email, _ = extract_contacts(html)
-        if email:
-            logger.debug(f"[Sitemap] email found on {page_url[:60]}")
-            return email
-    return ""
-
-
-def _whois_email(domain: str) -> str:
-    """
-    Check WHOIS registration record for the domain owner's email.
-    Requires `pip install python-whois`. Skipped silently if not installed.
-    Many small contractors register domains with their real email exposed.
-    """
-    try:
-        import whois  # type: ignore[import]
-        w      = whois.whois(domain)
-        emails = w.emails if hasattr(w, "emails") else []
-        if isinstance(emails, str):
-            emails = [emails]
-        privacy = ("privacy", "protect", "whoisguard", "redacted", "withheld")
-        for raw in (emails or []):
-            e = _clean_email(raw)
-            if _ok_email(e) and not any(p in e for p in privacy):
-                logger.debug(f"[WHOIS] email found for {domain}")
-                return e
-    except Exception:
-        pass
-    return ""
-
-
-def _ddg_email_hunt(domain: str) -> str:
-    """
-    Search DuckDuckGo for an email address associated with this domain.
-    Useful when the email appeared on a cached page, BBB listing, or forum post.
-    """
-    from scrapers.ddg import ddg_search
-    queries = [
-        quote_plus(f'"{domain}" email contact'),
-        quote_plus(f'"@{domain}"'),
-    ]
-    for q in queries:
-        for _, _, snippet in ddg_search(q, pages=1):
-            for raw in EMAIL_RE.findall(snippet):
-                e = _clean_email(raw)
-                if _ok_email(e) and domain in e:
-                    logger.debug(f"[DDG-hunt] email found in snippet for {domain}")
-                    return e
-    return ""
-
-
 def scrape_website(url: str) -> tuple[str, str]:
     """
     Sync multi-page website scraper (fallback when aiohttp not available).
@@ -433,9 +371,9 @@ def scrape_website(url: str) -> tuple[str, str]:
         return "", ""
     email, phone = extract_contacts(html)
     if (not email or not phone) and HAS_SCRAPLING:
-        page    = Adaptor(html)
-        hints   = ("contact", "about", "team", "reach", "support", "service", "us")
-        domain  = urlparse(url).netloc
+        page = Adaptor(html)
+        hints = ("contact", "about", "team", "reach", "support", "service", "us")
+        domain = urlparse(url).netloc
         visited = {url}
         ranked: list[tuple[int, str]] = []
         for el in page.css("a[href]"):
@@ -448,7 +386,7 @@ def scrape_website(url: str) -> tuple[str, str]:
                 continue
             if abs_url in visited:
                 continue
-            path  = p.path.lower()
+            path = p.path.lower()
             score = sum(2 for h in hints if h in path)
             if score > 0:
                 ranked.append((score, abs_url))
@@ -458,7 +396,7 @@ def scrape_website(url: str) -> tuple[str, str]:
                 break
             visited.add(sub_url)
             sub_html = http_get(sub_url, timeout=10)
-            se, sp   = extract_contacts(sub_html)
+            se, sp = extract_contacts(sub_html)
             if not email:
                 email = se
             if not phone:
