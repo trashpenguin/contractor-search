@@ -199,6 +199,7 @@ async def enrich_batch_async(contractors: list[Contractor], city_hint: str,
                 return s
         return _sems["default"]
 
+    # 8s total / 4s connect — tight enough to skip hung sites, loose enough for slow hosting
     timeout = aiohttp.ClientTimeout(total=8, connect=4)
     conn    = aiohttp.TCPConnector(limit=20, ttl_dns_cache=300,
                                    force_close=False, enable_cleanup_closed=True)
@@ -219,7 +220,7 @@ async def enrich_batch_async(contractors: list[Contractor], city_hint: str,
             f"https://www.{clean}contracting.com",
         ]
         t_short = aiohttp.ClientTimeout(total=3)
-        for url in candidates[:5]:
+        for url in candidates[:5]:  # check first 5 guesses; beyond that accuracy drops
             try:
                 async with session.head(url, timeout=t_short, ssl=True,
                                         allow_redirects=True) as r:
@@ -332,7 +333,7 @@ def _scan_js_for_email(url: str, html: str) -> str:
         # Only scan scripts served from the same domain — skip CDN/analytics
         if urlparse(abs_src).netloc not in ("", domain):
             continue
-        if checked >= 5:   # cap at 5 same-domain scripts to avoid 13+ downloads
+        if checked >= 5:   # cap at 5 same-domain scripts — beyond that it's CDN noise
             break
         checked += 1
         js = http_get(abs_src, timeout=5)
