@@ -154,18 +154,33 @@ TRADE_KW = {
         "yp": "hvac+heating+cooling+contractor",
         "google": "HVAC contractor",
         "yelp": "hvac",
+        "gsearch": [
+            "HVAC contractor",
+            "heating cooling contractor",
+            "furnace AC repair",
+        ],
     },
     "Electrical": {
         "osm": ["electrician", "electrical", "electric"],
         "yp": "electrician+electrical+contractor",
         "google": "electrical contractor",
         "yelp": "electricians",
+        "gsearch": [
+            "electrician",
+            "electrical contractor",
+            "electric repair service",
+        ],
     },
     "Excavating": {
         "osm": ["excavating", "earthwork", "grading", "dirt work", "excavation"],
         "yp": "excavating+grading+earthwork+contractor",
         "google": "excavating grading contractor",
         "yelp": "excavation services",
+        "gsearch": [
+            "excavating contractor",
+            "grading excavation contractor",
+            "site work dirt contractor",
+        ],
     },
 }
 
