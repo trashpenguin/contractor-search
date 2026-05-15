@@ -1,4 +1,4 @@
-# Contractor Finder v3.3
+# Contractor Finder v3.4
 
 Professional desktop application for finding contractors (HVAC, Electrical, Excavating) across USA locations. Aggregates data from OpenStreetMap, YellowPages, Yelp, and Google Maps, then enriches results with phone numbers, emails, and websites via a fully async pipeline.
 
@@ -28,14 +28,16 @@ Built with Scrapling stealth browser automation, a rate-aware DDG pipeline, and 
 - Smart deduplication with data merging across sources
 - SQLite caching — 7-day contacts TTL, 1-day DDG TTL (empty results cached too)
 - Opt-in proxy rotation (proxifly + 5 other free lists) with health scoring and instant circuit-break on timeout
-- Domain guessing engine — 9 common patterns, zero rate limits
-- 4-strategy deep email hunt: JS file scan, sitemap crawl, WHOIS lookup, DDG snippet search
+- Domain guessing engine — 11 patterns including `.net` and trade-suffix variants, zero rate limits
+- 4-strategy deep email hunt: JS file scan, sitemap crawl, WHOIS lookup, DDG snippet search (extracted to `email_hunter.py`)
 - Guessed emails tagged separately (gold "~" indicator) so they're distinguishable from scraped emails
 - Cloudflare `data-cfemail` obfuscation decode
 - Role account detection (`info@`, `contact@`, etc.)
 - Email MX-based verification
 - Lead-gen / aggregator domain blocklist (buildzoom, myhomequote, birdeye, houzz, etc.)
 - Dark-themed desktop UI — live stats per trade, trade/source/name filters
+- **Quality score** — each result scored 0–3 (phone + email + website); table sorted by score so complete records float to top
+- **Hide Incomplete** checkbox — one click filters out results missing phone, email, and website simultaneously
 - Per-source status badges (OSM / YellowPages / Yelp / Google) update live during search
 - Live elapsed timer with 5-minute warning when search is taking longer than expected
 - Location input validation with descriptive error messages
@@ -43,6 +45,9 @@ Built with Scrapling stealth browser automation, a rate-aware DDG pipeline, and 
 - Filter resets automatically on each new search
 - Search history (last 20 locations)
 - Google Sheets export support
+- HTTP retry with exponential backoff (2 retries, 1 s / 2 s delays) for transient network errors
+- Opt-in JSON structured logging via `LOG_FORMAT=json` env var
+- All tunable constants exposed as environment variables (see [Configuration](#configuration-env-vars))
 
 ---
 
@@ -136,6 +141,31 @@ Results appear live in the table. All three trades run sequentially; the filter 
 
 ---
 
+## Configuration (Env Vars)
+
+All tunable parameters can be overridden at runtime without editing source files:
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `LOG_LEVEL` | `INFO` | Python log level (`DEBUG`, `INFO`, `WARNING`) |
+| `LOG_FORMAT` | — | Set to `json` for structured JSON log output |
+| `ENRICH_BATCH_SIZE` | `15` | Contractors per async enrichment batch |
+| `DDG_CAP` | `8` | Max DDG website-lookup calls per trade |
+| `SEM_DDG` | `2` | Max concurrent DDG requests |
+| `SEM_GOOGLE` | `1` | Max concurrent Google Maps requests |
+| `SEM_YELLOWPAGES` | `2` | Max concurrent YellowPages requests |
+| `SEM_DEFAULT` | `6` | Max concurrent requests for all other targets |
+| `TTL_CONTACT` | `604800` | Contact cache TTL in seconds (7 days) |
+| `TTL_DDG` | `86400` | DDG result cache TTL in seconds (1 day) |
+
+Example:
+
+```bash
+LOG_FORMAT=json DDG_CAP=4 python contractor_gui.py
+```
+
+---
+
 ## Result Columns
 
 | Column | Description |
@@ -159,30 +189,41 @@ Results appear live in the table. All three trades run sequentially; the filter 
 ```text
 contractor-search/
 ├── contractor_gui.py        ← entry point (~50 lines)
-├── models.py                ← Contractor dataclass
+├── models.py                ← Contractor dataclass + quality_score property
+├── config.py                ← all tunable constants, overridable via env vars
 ├── constants.py             ← regexes, TRADE_KW, colour maps, SKIP_DOMAINS, proxy sources
 ├── compat.py                ← optional-dep detection (scrapling / aiohttp / dnspython)
 ├── cache.py                 ← ContactCache (SQLite, 7d TTL) + SearchHistory
 ├── proxy.py                 ← ProxyManager — opt-in, 6 sources, health scoring, circuit-break
-├── http_client.py           ← http_get, stealth_get, post_bytes, event loop
+├── http_client.py           ← http_get (with exponential-backoff retry), stealth_get, post_bytes
 ├── extractor.py             ← extract_contacts (8 strategies), verify_email, _clean_email
-├── enricher.py              ← async/sync enrichment pipeline + dedup + 4 deep-hunt strategies
+├── email_hunter.py          ← deep email hunt strategies (JS scan, sitemap, WHOIS, DDG snippet)
+├── enricher.py              ← async/sync enrichment pipeline + dedup
 ├── search.py                ← run_search orchestrator (per-trade DDG state)
 ├── workers.py               ← SearchWorker / VerifyWorker (QThread)
 ├── scrapers/
 │   ├── ddg.py               ← DuckDuckGo HTML search, rate limiter, cache
 │   ├── osm.py               ← Overpass API + Nominatim keyword fallback
-│   ├── yellowpages.py       ← StealthySession, multi-page, 530 retry
+│   ├── yellowpages.py       ← StealthySession, multi-page, 530 retry + profile-page phone fetch
 │   ├── yelp.py              ← 3-phase: curl_cffi → StealthySession → DDG fallback
 │   └── google.py            ← StealthySession, page_action scroll, APP_STATE + feed + place-links
-└── gui/
-    ├── style.py             ← STYLE CSS, COLS, VERIFY_COLORS/ICONS (guessed = gold)
-    ├── widgets.py           ← StatCard
-    └── main_window.py       ← MainWindow — filter-aware _add_row, double-start guard
+├── gui/
+│   ├── style.py             ← STYLE CSS, COLS, VERIFY_COLORS/ICONS (guessed = gold)
+│   ├── widgets.py           ← StatCard
+│   ├── search_mixin.py      ← search lifecycle, source badges, elapsed timer
+│   ├── table_mixin.py       ← _add_row, quality-score sort, Hide Incomplete filter
+│   ├── export_mixin.py      ← CSV / TXT / Google Sheets export
+│   └── main_window.py       ← MainWindow (composes the three mixins)
+└── tests/
+    ├── test_extractor.py    ← 32 unit tests for extractor helpers
+    ├── test_enricher.py     ← 30 unit tests for enricher dedup helpers
+    ├── test_enricher_domain.py ← domain guessing tests
+    ├── test_models.py       ← Contractor dataclass tests
+    └── test_yelp_phone.py   ← Yelp phone fallback tests
 ```
 
 **Dependency flow (no circular imports):**
-`models → constants → compat → cache → proxy → http_client → extractor → scrapers/* → enricher → search → workers → gui/* → contractor_gui.py`
+`models → config → constants → compat → cache → proxy → http_client → extractor → email_hunter → scrapers/* → enricher → search → workers → gui/* → contractor_gui.py`
 
 ### Data Flow
 
@@ -346,7 +387,33 @@ Each trade has separate keyword sets per source.
 
 ## Release Notes
 
-### v3.3 — Current
+### v3.4 — Current
+
+#### New features
+
+- **Quality score** — `Contractor.quality_score` property (0–3: phone + email + website). Table is sorted by score on every update so complete records always float to the top.
+- **Hide Incomplete checkbox** — filters the table to show only contractors that have at least one of phone, email, or website; updates live without re-running the search.
+- **Expanded domain guessing** — 11 patterns now, adding `.net` variants and trade-suffix candidates (e.g. `smithhvac.com`). Smarter DDG fallback query avoids generic listicle pages.
+- **YellowPages profile-page phone recovery** — for listings that return no phone in the search results, the scraper now fetches the YP profile page to recover direct-dial numbers.
+- **Yelp phone fallbacks** — `primaryPhone` and `formattedPhone` fields in `__NEXT_DATA__` JSON are tried before falling back to regex.
+- **HTTP retry with exponential backoff** — `http_get` retries up to 2 times on transient errors (1 s then 2 s delay), reducing spurious empty results.
+- **JSON structured logging** — set `LOG_FORMAT=json` to get machine-readable log lines (useful for log aggregators / CI).
+- **Env-var configuration** — all tunable constants (`DDG_CAP`, `SEM_*`, `TTL_*`, `ENRICH_BATCH_SIZE`) moved to `config.py` and overridable at runtime without editing code.
+
+#### Architecture changes
+
+- **`email_hunter.py`** extracted from `enricher.py` — the four deep-hunt strategies (JS scan, sitemap crawl, WHOIS, DDG snippet) are now self-contained functions in their own module.
+- **`config.py`** added — single source of truth for all numeric/string tunables; all other modules import from here instead of duplicating constants.
+- **`main_window.py` split into mixins** — `SearchMixin`, `TableMixin`, and `ExportMixin` each own a focused slice of the UI logic; `MainWindow` composes them.
+
+#### Testing & CI
+
+- 62+ unit tests added across `test_extractor.py`, `test_enricher.py`, `test_enricher_domain.py`, `test_models.py`, and `test_yelp_phone.py`.
+- GitHub Actions CI workflow runs `flake8` lint and the full test suite on every push.
+
+---
+
+### v3.3
 
 #### UI improvements
 
