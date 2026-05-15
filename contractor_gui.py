@@ -25,16 +25,38 @@ Module layout:
     main_window.py   MainWindow
 """
 from __future__ import annotations
-import logging, os, sys
+
+import json as _json
+import logging
+import os
+import sys
 from logging.handlers import RotatingFileHandler
+
+
+class _JsonFormatter(logging.Formatter):
+    """Structured JSON log formatter — enabled via LOG_FORMAT=json env var."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        return _json.dumps(
+            {
+                "ts": self.formatTime(record, "%Y-%m-%dT%H:%M:%S"),
+                "level": record.levelname,
+                "logger": record.name,
+                "msg": record.getMessage(),
+            }
+        )
+
 
 # ── Logging must be configured before any local import ───────────────────────
 _LOG_FILE = os.path.join(os.path.expanduser("~"), "contractor_finder.log")
-_logger   = logging.getLogger("ContractorFinder")
+_logger = logging.getLogger("ContractorFinder")
 _log_level = os.environ.get("LOG_LEVEL", "INFO").upper()
 _logger.setLevel(getattr(logging, _log_level, logging.INFO))
 _fh = RotatingFileHandler(_LOG_FILE, maxBytes=5_000_000, backupCount=3, encoding="utf-8")
-_fh.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
+if os.environ.get("LOG_FORMAT", "text").lower() == "json":
+    _fh.setFormatter(_JsonFormatter())
+else:
+    _fh.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
 _ch = logging.StreamHandler(sys.stdout)
 _ch.setLevel(logging.INFO)
 _ch.setFormatter(logging.Formatter("%(asctime)s %(message)s", datefmt="%H:%M:%S"))
@@ -43,9 +65,10 @@ _logger.addHandler(_ch)
 _logger.propagate = False
 
 # ── Application ───────────────────────────────────────────────────────────────
-from PySide6.QtWidgets import QApplication
-from gui.main_window import MainWindow
-from gui.style import STYLE
+from PySide6.QtWidgets import QApplication  # noqa: E402
+
+from gui.main_window import MainWindow  # noqa: E402
+from gui.style import STYLE  # noqa: E402
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
