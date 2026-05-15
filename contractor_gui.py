@@ -31,7 +31,8 @@ from logging.handlers import RotatingFileHandler
 # ── Logging must be configured before any local import ───────────────────────
 _LOG_FILE = os.path.join(os.path.expanduser("~"), "contractor_finder.log")
 _logger   = logging.getLogger("ContractorFinder")
-_logger.setLevel(logging.DEBUG)
+_log_level = os.environ.get("LOG_LEVEL", "INFO").upper()
+_logger.setLevel(getattr(logging, _log_level, logging.INFO))
 _fh = RotatingFileHandler(_LOG_FILE, maxBytes=5_000_000, backupCount=3, encoding="utf-8")
 _fh.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
 _ch = logging.StreamHandler(sys.stdout)
