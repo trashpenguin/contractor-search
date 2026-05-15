@@ -61,7 +61,12 @@ def run_search(
         trade_base = trade_idx * trade_alloc
         collected: list[Contractor] = []
 
-        for src_idx, src in enumerate(sources):
+        # Run Google Search before Google Maps so its phone-rich records win dedup ties
+        ordered_sources = sorted(
+            sources,
+            key=lambda s: (0 if s == "Google Search" else 1 if s == "Google" else 2),
+        )
+        for src_idx, src in enumerate(ordered_sources):
             if stop_ev.is_set():
                 break
             pct = int(trade_base + (src_idx + 1) / n_sources * trade_alloc * scrape_frac)
