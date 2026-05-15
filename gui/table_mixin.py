@@ -11,17 +11,7 @@ from gui.style import VERIFY_COLORS, VERIFY_ICONS
 class TableMixin:
     def _add_row(self, c):
         self.rows.append(c)
-        trade = self.tf.currentText()
-        src = self.sf2.currentText()
-        name = self.nf.text().strip().lower()
-        if (
-            (trade == "All" or c.trade == trade)
-            and (src == "All Sources" or c.source == src)
-            and (not name or name in c.name.lower())
-        ):
-            row = self.table.rowCount()
-            self.table.insertRow(row)
-            self._fill_row(row, c)
+        self._filter()
         self._update_stats()
 
     def _fill_row(self, row: int, c):
@@ -58,14 +48,25 @@ class TableMixin:
         trade = self.tf.currentText()
         src = self.sf2.currentText()
         name = self.nf.text().strip().lower()
-        self.table.setRowCount(0)
-        for i, c in enumerate(self.rows):
+        hide_empty = getattr(self, "chk_hide", None)
+        hide_empty_checked = hide_empty is not None and hide_empty.isChecked()
+
+        matched = []
+        for c in self.rows:
             if trade != "All" and c.trade != trade:
                 continue
             if src != "All Sources" and c.source != src:
                 continue
             if name and name not in c.name.lower():
                 continue
+            if hide_empty_checked and c.quality_score == 0:
+                continue
+            matched.append(c)
+
+        matched.sort(key=lambda c: c.quality_score, reverse=True)
+
+        self.table.setRowCount(0)
+        for i, c in enumerate(matched):
             row = self.table.rowCount()
             self.table.insertRow(row)
             self._fill_row(row, c)
