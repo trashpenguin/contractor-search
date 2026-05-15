@@ -24,6 +24,7 @@ Module layout:
     widgets.py       StatCard
     main_window.py   MainWindow
 """
+
 from __future__ import annotations
 
 import json as _json

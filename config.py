@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 import os
 
 # ── Logging ───────────────────────────────────────────────────────────────────
@@ -21,5 +22,5 @@ SEM_YELLOWPAGES: int = int(os.environ.get("SEM_YELLOWPAGES", "2"))
 SEM_DEFAULT: int = int(os.environ.get("SEM_DEFAULT", "6"))
 
 # ── Cache TTLs (seconds) ──────────────────────────────────────────────────────
-TTL_CONTACT: int = int(os.environ.get("TTL_CONTACT", str(7 * 86400)))   # 7 days
-TTL_DDG: int = int(os.environ.get("TTL_DDG", str(1 * 86400)))           # 1 day
+TTL_CONTACT: int = int(os.environ.get("TTL_CONTACT", str(7 * 86400)))  # 7 days
+TTL_DDG: int = int(os.environ.get("TTL_DDG", str(1 * 86400)))  # 1 day

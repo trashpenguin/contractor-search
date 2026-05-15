@@ -1,27 +1,28 @@
 from __future__ import annotations
+
 import logging
 import threading
 from urllib.parse import quote_plus
 
 from compat import HAS_AIOHTTP
-from config import ENRICH_BATCH_SIZE, DDG_CAP
+from config import ENRICH_BATCH_SIZE
 from constants import SKIP_DOMAINS
-from enricher import enrich_batch_async, scrape_website, dedup
-from extractor import _ok_email, _clean_email
+from enricher import dedup, enrich_batch_async, scrape_website
+from extractor import _clean_email, _ok_email
 from http_client import get_event_loop
 from models import Contractor
 from scrapers.ddg import ddg_search
+from scrapers.google import scrape_google
 from scrapers.osm import scrape_osm
 from scrapers.yellowpages import scrape_yellowpages
 from scrapers.yelp import scrape_yelp
-from scrapers.google import scrape_google
 
 logger = logging.getLogger("ContractorFinder")
 
 SRC_FN = {
     "YellowPages": scrape_yellowpages,
-    "Yelp":        scrape_yelp,
-    "Google":      scrape_google,
+    "Yelp": scrape_yelp,
+    "Google": scrape_google,
 }
 
 
@@ -39,6 +40,7 @@ def run_search(
     source_cb=None,
 ):
     from scrapers.osm import geocode
+
     try:
         progress_cb(0, "Geocoding location...")
         lat, lon = geocode(location)
@@ -46,10 +48,10 @@ def run_search(
         done_cb(False, str(e))
         return
 
-    n_trades       = len(trades)
-    n_sources      = len(sources)
-    trade_alloc    = 100.0 / n_trades   # percent of bar each trade owns
-    scrape_frac    = 0.4 if enrich else 1.0   # fraction of trade_alloc for scraping
+    n_trades = len(trades)
+    n_sources = len(sources)
+    trade_alloc = 100.0 / n_trades  # percent of bar each trade owns
+    scrape_frac = 0.4 if enrich else 1.0  # fraction of trade_alloc for scraping
 
     for trade_idx, trade in enumerate(trades):
         if stop_ev.is_set():
@@ -89,16 +91,16 @@ def run_search(
                     c.email = decoded
 
         if enrich and collected:
-            BATCH         = ENRICH_BATCH_SIZE
-            n_total       = len(collected)
-            scrape_end    = int(trade_base + trade_alloc * scrape_frac)
-            enrich_alloc  = trade_alloc * (1.0 - scrape_frac)
-            ddg_state     = [0]  # shared counter across batches; capped at DDG_CAP per trade
+            BATCH = ENRICH_BATCH_SIZE
+            n_total = len(collected)
+            scrape_end = int(trade_base + trade_alloc * scrape_frac)
+            enrich_alloc = trade_alloc * (1.0 - scrape_frac)
+            ddg_state = [0]  # shared counter across batches; capped at DDG_CAP per trade
             for batch_start in range(0, n_total, BATCH):
                 if stop_ev.is_set():
                     break
-                batch = collected[batch_start:batch_start + BATCH]
-                pct   = int(scrape_end + (batch_start / max(n_total, 1)) * enrich_alloc)
+                batch = collected[batch_start : batch_start + BATCH]
+                pct = int(scrape_end + (batch_start / max(n_total, 1)) * enrich_alloc)
                 progress_cb(
                     pct,
                     f"[{trade}] Enriching {batch_start+1}-"
@@ -108,8 +110,9 @@ def run_search(
                     try:
                         loop = get_event_loop()
                         loop.run_until_complete(
-                            enrich_batch_async(batch, city_hint, location=location,
-                                               _ddg_state=ddg_state)
+                            enrich_batch_async(
+                                batch, city_hint, location=location, _ddg_state=ddg_state
+                            )
                         )
                     except Exception as e:
                         logger.error(f"[Async] batch error: {e}")

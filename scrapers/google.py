@@ -1,15 +1,17 @@
 from __future__ import annotations
-import json, re, time
+
 import logging
+import re
 from urllib.parse import quote_plus, unquote_plus
 
-from constants import TRADE_KW, PHONE_RE, ADDR_RE
-from compat import HAS_SCRAPLING, StealthySession, Adaptor
+from compat import HAS_SCRAPLING, Adaptor, StealthySession
+from constants import ADDR_RE, PHONE_RE, TRADE_KW
 from models import Contractor
 
 logger = logging.getLogger("ContractorFinder")
 
 # ── APP_INITIALIZATION_STATE parser ──────────────────────────────────────────
+
 
 def _parse_app_state(html: str) -> dict:
     """
@@ -21,16 +23,24 @@ def _parse_app_state(html: str) -> dict:
     m = re.search(r"APP_INITIALIZATION_STATE\s*=\s*(\[.{200,})", html, re.DOTALL)
     if not m:
         return {"names": [], "phones": [], "websites": []}
-    chunk = m.group(1)[:1_000_000]   # cap at 1 MB
+    chunk = m.group(1)[:1_000_000]  # cap at 1 MB
 
-    phones = list(dict.fromkeys(re.findall(
-        r'"(\(?\d{3}\)?[\s\-\.]\d{3}[\s\-\.]\d{4})"', chunk
-    )))
+    phones = list(dict.fromkeys(re.findall(r'"(\(?\d{3}\)?[\s\-\.]\d{3}[\s\-\.]\d{4})"', chunk)))
 
     skip_domains = {
-        "google", "gstatic", "googleapis", "googleusercontent",
-        "ggpht", "youtube", "facebook", "instagram", "twitter",
-        "yelp", "yellowpages", "bbb.org", "schema.org",
+        "google",
+        "gstatic",
+        "googleapis",
+        "googleusercontent",
+        "ggpht",
+        "youtube",
+        "facebook",
+        "instagram",
+        "twitter",
+        "yelp",
+        "yellowpages",
+        "bbb.org",
+        "schema.org",
     }
     websites: list[str] = []
     for raw in re.findall(r'"(https?://[^"]{10,300})"', chunk):
@@ -41,18 +51,19 @@ def _parse_app_state(html: str) -> dict:
     names: list[str] = []
     seen_n: set[str] = set()
     phone_pat = re.compile(r'"\(?\d{3}\)?[\s\-\.]\d{3}[\s\-\.]\d{4}"')
-    name_pat  = re.compile(
-        r'"([A-Z][A-Za-z0-9&\'\.\s\-]{4,55})"'
-    )
+    name_pat = re.compile(r'"([A-Z][A-Za-z0-9&\'\.\s\-]{4,55})"')
     for pm in phone_pat.finditer(chunk):
-        window = chunk[max(0, pm.start() - 900): min(len(chunk), pm.end() + 900)]
+        window = chunk[max(0, pm.start() - 900) : min(len(chunk), pm.end() + 900)]
         for nm in name_pat.finditer(window):
             candidate = nm.group(1).strip()
             # Filter out obvious non-names
-            if (len(candidate) < 5 or len(candidate) > 60
-                    or candidate in seen_n
-                    or re.search(r"https?://|\\u|\\n|\d{4,}", candidate)
-                    or candidate.isupper()):
+            if (
+                len(candidate) < 5
+                or len(candidate) > 60
+                or candidate in seen_n
+                or re.search(r"https?://|\\u|\\n|\d{4,}", candidate)
+                or candidate.isupper()
+            ):
                 continue
             seen_n.add(candidate)
             names.append(candidate)
@@ -62,6 +73,7 @@ def _parse_app_state(html: str) -> dict:
 
 # ── Place-link name extractor ─────────────────────────────────────────────────
 
+
 def _names_from_place_links(page) -> list[str]:
     """
     Extract business names from Google Maps place URLs.
@@ -70,13 +82,13 @@ def _names_from_place_links(page) -> list[str]:
     in the URL even when all CSS class names change.
     """
     names: list[str] = []
-    seen:  set[str]  = set()
+    seen: set[str] = set()
     for el in page.css("a[href*='/maps/place/']"):
         href = el.attrib.get("href", "")
         m = re.search(r"/maps/place/([^@]{3,}?)(?:/@|/data=|$)", href)
         if not m:
             continue
-        raw  = m.group(1)
+        raw = m.group(1)
         name = unquote_plus(raw).strip()
         # Strip leading/trailing noise
         name = re.sub(r"\s*\(\d+\)\s*$", "", name).strip()
@@ -90,17 +102,31 @@ def _names_from_place_links(page) -> list[str]:
 
 # ── Feed-card extractor ───────────────────────────────────────────────────────
 
+
 def _parse_feed(page, limit: int) -> list[dict]:
     """Parse div[role='feed'] cards using aria-label + place-link names."""
-    out:  list[dict] = []
-    seen: set[str]   = set()
+    out: list[dict] = []
+    seen: set[str] = set()
 
-    feed      = page.css("div[role='feed']")
+    feed = page.css("div[role='feed']")
     container = feed[0] if feed else page
 
-    skip_words = {"search", "result", "map", "back", "menu", "list",
-                  "view", "zoom", "more", "filter", "directions", "open",
-                  "sponsored", "ad "}
+    skip_words = {
+        "search",
+        "result",
+        "map",
+        "back",
+        "menu",
+        "list",
+        "view",
+        "zoom",
+        "more",
+        "filter",
+        "directions",
+        "open",
+        "sponsored",
+        "ad ",
+    }
 
     # Method A: aria-label on feed items
     for el in container.css("div[aria-label]"):
@@ -116,14 +142,14 @@ def _parse_feed(page, limit: int) -> list[dict]:
             continue
         seen.add(name)
 
-        txt   = el.get_all_text(separator="\n")
+        txt = el.get_all_text(separator="\n")
         phone = ""
-        pm    = PHONE_RE.search(txt)
+        pm = PHONE_RE.search(txt)
         if pm:
             phone = pm.group(1)
 
         address = ""
-        am      = ADDR_RE.search(txt)
+        am = ADDR_RE.search(txt)
         if am:
             address = am.group(0).strip()
 
@@ -134,8 +160,7 @@ def _parse_feed(page, limit: int) -> list[dict]:
                 website = h
                 break
 
-        out.append({"name": name, "phone": phone,
-                    "address": address, "website": website})
+        out.append({"name": name, "phone": phone, "address": address, "website": website})
 
     # Method B: place-link URL names
     for name in _names_from_place_links(container if feed else page):
@@ -149,6 +174,7 @@ def _parse_feed(page, limit: int) -> list[dict]:
 
 
 # ── Scroll page_action ────────────────────────────────────────────────────────
+
 
 def _make_scroll_action(n: int = 10, wait_ms: int = 1200):
     """
@@ -175,8 +201,10 @@ def _make_scroll_action(n: int = 10, wait_ms: int = 1200):
 
 # ── Main scraper ──────────────────────────────────────────────────────────────
 
-def scrape_google(trade: str, location: str, limit: int,
-                  lat: float | None = None, lon: float | None = None) -> list[Contractor]:
+
+def scrape_google(
+    trade: str, location: str, limit: int, lat: float | None = None, lon: float | None = None
+) -> list[Contractor]:
     """
     Google Maps scraper.
 
@@ -204,15 +232,14 @@ def scrape_google(trade: str, location: str, limit: int,
         url = f"https://www.google.com/maps/search/{term}?hl=en"
 
     try:
-        with StealthySession(headless=True, network_idle=True,
-                             disable_resources=False) as session:
+        with StealthySession(headless=True, network_idle=True, disable_resources=False) as session:
             try:
                 resp = session.fetch(
                     url,
                     page_action=_make_scroll_action(n=10, wait_ms=1200),
                     wait=2000,
                 )
-                raw  = resp.body or b""
+                raw = resp.body or b""
                 html = raw.decode("utf-8", errors="ignore") if isinstance(raw, bytes) else raw
             except Exception as e:
                 logger.warning(f"[Google] Load error: {type(e).__name__}")
@@ -222,41 +249,45 @@ def scrape_google(trade: str, location: str, limit: int,
                 return out
 
             # ── Extract from APP_INITIALIZATION_STATE JS blob ─────────────────
-            app_data    = _parse_app_state(html)
-            js_names    = app_data["names"]
-            js_phones   = app_data["phones"]
-            js_websites = [w for w in app_data["websites"]
-                           if not any(d in w for d in
-                                      {"google", "gstatic", "yelp", "yellowpages"})]
+            app_data = _parse_app_state(html)
+            js_names = app_data["names"]
+            js_phones = app_data["phones"]
+            js_websites = [
+                w
+                for w in app_data["websites"]
+                if not any(d in w for d in {"google", "gstatic", "yelp", "yellowpages"})
+            ]
             logger.debug(
                 f"[Google] APP_STATE: {len(js_names)} name candidates, "
                 f"{len(js_phones)} phones, {len(js_websites)} websites"
             )
 
             # ── Extract from feed cards + place links ─────────────────────────
-            page    = Adaptor(html)
+            page = Adaptor(html)
             entries = _parse_feed(page, limit)
             logger.info(f"[Google] {trade}: {len(entries)} entries from feed/place-links")
 
             # Supplement entries with JS blob data
-            phone_pool   = list(js_phones)
+            phone_pool = list(js_phones)
             website_pool = list(js_websites)
 
             for i, entry in enumerate(entries[:limit]):
-                phone   = entry.get("phone", "")
+                phone = entry.get("phone", "")
                 website = entry.get("website", "")
                 if not phone and i < len(phone_pool):
                     phone = phone_pool[i]
                 if not website and website_pool:
                     website = website_pool.pop(0)
-                out.append(Contractor(
-                    trade=trade,
-                    name=entry["name"],
-                    phone=phone,
-                    website=website,
-                    address=entry.get("address", ""),
-                    source="Google",
-                ))
+                out.append(
+                    Contractor(
+                        trade=trade,
+                        name=entry["name"],
+                        phone=phone,
+                        website=website,
+                        address=entry.get("address", ""),
+                        source="Google",
+                    )
+                )
 
             # ── Fallback: JS blob name candidates if feed gave nothing ─────────
             if not out:
@@ -267,10 +298,15 @@ def scrape_google(trade: str, location: str, limit: int,
                     seen_names.add(name)
                     p = phone_pool.pop(0) if phone_pool else ""
                     w = website_pool.pop(0) if website_pool else ""
-                    out.append(Contractor(
-                        trade=trade, name=name, phone=p,
-                        website=w, source="Google",
-                    ))
+                    out.append(
+                        Contractor(
+                            trade=trade,
+                            name=name,
+                            phone=p,
+                            website=w,
+                            source="Google",
+                        )
+                    )
 
     except Exception as e:
         logger.error(f"[Google] Session error: {type(e).__name__}: {e}")

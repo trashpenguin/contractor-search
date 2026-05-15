@@ -1,10 +1,11 @@
 from __future__ import annotations
-import time
+
 import logging
+import time
 from urllib.parse import quote_plus
 
-from constants import TRADE_KW, PHONE_RE
-from compat import HAS_SCRAPLING, StealthySession, Adaptor
+from compat import HAS_SCRAPLING, Adaptor, StealthySession
+from constants import PHONE_RE, TRADE_KW
 from models import Contractor
 
 logger = logging.getLogger("ContractorFinder")
@@ -17,7 +18,7 @@ def scrape_yellowpages(trade: str, location: str, limit: int) -> list[Contractor
     """
     out: list[Contractor] = []
     term = TRADE_KW[trade]["yp"]
-    loc  = quote_plus(location)
+    loc = quote_plus(location)
     if not HAS_SCRAPLING:
         return out
 
@@ -27,16 +28,15 @@ def scrape_yellowpages(trade: str, location: str, limit: int) -> list[Contractor
         if isinstance(html, bytes):
             html = html.decode("utf-8", errors="ignore")
         return (
-            "cf-browser-verification" in html
-            or "Checking your browser" in html
-            or len(html) < 500
+            "cf-browser-verification" in html or "Checking your browser" in html or len(html) < 500
         )
 
     for attempt in range(3):
         out = []
         try:
-            with StealthySession(headless=True, network_idle=True,
-                                 disable_resources=False) as session:
+            with StealthySession(
+                headless=True, network_idle=True, disable_resources=False
+            ) as session:
                 for pg in range(1, 6):
                     if len(out) >= limit:
                         break
@@ -54,7 +54,7 @@ def scrape_yellowpages(trade: str, location: str, limit: int) -> list[Contractor
                         logger.info(f"[YP] Cloudflare on page {pg}, attempt {attempt+1}/3")
                         time.sleep(3 + attempt * 2)
                         break
-                    page  = Adaptor(html)
+                    page = Adaptor(html)
                     cards = (
                         page.css("div.srp-listing")
                         or page.css("div.result")
@@ -69,8 +69,14 @@ def scrape_yellowpages(trade: str, location: str, limit: int) -> list[Contractor
                         if len(out) >= limit:
                             break
                         name = ""
-                        for sel in ["h2.n a", "a.business-name", "h2 a",
-                                    ".business-name span", "a[class*='business'] span", "h3 a"]:
+                        for sel in [
+                            "h2.n a",
+                            "a.business-name",
+                            "h2 a",
+                            ".business-name span",
+                            "a[class*='business'] span",
+                            "h3 a",
+                        ]:
                             els = card.css(sel)
                             if els:
                                 name = els[0].text.strip()
@@ -79,8 +85,12 @@ def scrape_yellowpages(trade: str, location: str, limit: int) -> list[Contractor
                         if not name or len(name) < 2:
                             continue
                         phone = ""
-                        for sel in ["div.phones.phone.primary", "div.phones",
-                                    ".phone", "[class*='phone']"]:
+                        for sel in [
+                            "div.phones.phone.primary",
+                            "div.phones",
+                            ".phone",
+                            "[class*='phone']",
+                        ]:
                             els = card.css(sel)
                             if els:
                                 phone = els[0].text.strip()
@@ -90,8 +100,11 @@ def scrape_yellowpages(trade: str, location: str, limit: int) -> list[Contractor
                             if m:
                                 phone = m.group(1)
                         website = ""
-                        for sel in ["a.track-visit-website", "a[class*='website']",
-                                    "a[href^='http']:not([href*='yellowpages'])"]:
+                        for sel in [
+                            "a.track-visit-website",
+                            "a[class*='website']",
+                            "a[href^='http']:not([href*='yellowpages'])",
+                        ]:
                             els = card.css(sel)
                             if els:
                                 h = els[0].attrib.get("href", "")
@@ -104,10 +117,16 @@ def scrape_yellowpages(trade: str, location: str, limit: int) -> list[Contractor
                             if els:
                                 address = els[0].get_all_text(separator=" ").strip()
                                 break
-                        out.append(Contractor(
-                            trade=trade, name=name, phone=phone,
-                            website=website, address=address, source="YellowPages",
-                        ))
+                        out.append(
+                            Contractor(
+                                trade=trade,
+                                name=name,
+                                phone=phone,
+                                website=website,
+                                address=address,
+                                source="YellowPages",
+                            )
+                        )
                         found += 1
                     logger.info(f"[YP] page {pg}: {found} found (total {len(out)})")
                     if found == 0:

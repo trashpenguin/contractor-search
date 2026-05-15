@@ -1,9 +1,11 @@
 from __future__ import annotations
-import json, re
+
+import json
 import logging
+import re
 from urllib.parse import quote_plus
 
-from constants import TRADE_KW, OVERPASS_EPS
+from constants import OVERPASS_EPS, TRADE_KW
 from http_client import http_get, post_bytes
 from models import Contractor
 
@@ -11,8 +13,10 @@ logger = logging.getLogger("ContractorFinder")
 
 
 def geocode(location: str) -> tuple[float, float]:
-    url  = (f"https://nominatim.openstreetmap.org/search"
-            f"?q={quote_plus(location)}&format=jsonv2&limit=1&countrycodes=us")
+    url = (
+        f"https://nominatim.openstreetmap.org/search"
+        f"?q={quote_plus(location)}&format=jsonv2&limit=1&countrycodes=us"
+    )
     html = http_get(url, timeout=30)
     if not html:
         raise RuntimeError(f"Cannot geocode: {location}")
@@ -23,19 +27,21 @@ def geocode(location: str) -> tuple[float, float]:
 
 
 def scrape_osm(trade: str, lat: float, lon: float, radius_m: int, limit: int) -> list[Contractor]:
-    kw    = TRADE_KW[trade]["osm"]
+    kw = TRADE_KW[trade]["osm"]
     regex = "|".join(re.escape(k) for k in kw)
-    q     = (
-        f'[out:json][timeout:90];'
+    q = (
+        f"[out:json][timeout:90];"
         f'(nwr(around:{radius_m},{lat},{lon})["name"~"{regex}",i];'
         f'nwr(around:{radius_m},{lat},{lon})["shop"~"{regex}",i];'
         f'nwr(around:{radius_m},{lat},{lon})["craft"~"{regex}",i];'
         f'nwr(around:{radius_m},{lat},{lon})["trade"~"{regex}",i];'
-        f');out center tags;'
+        f");out center tags;"
     )
-    payload  = f"data={quote_plus(q)}".encode()
-    hdrs     = {"User-Agent": "ContractorFinder/3.0",
-                "Content-Type": "application/x-www-form-urlencoded"}
+    payload = f"data={quote_plus(q)}".encode()
+    hdrs = {
+        "User-Agent": "ContractorFinder/3.0",
+        "Content-Type": "application/x-www-form-urlencoded",
+    }
     elements = []
     for ep in OVERPASS_EPS:
         raw = post_bytes(ep, payload, hdrs)
@@ -64,27 +70,47 @@ def scrape_osm(trade: str, lat: float, lon: float, radius_m: int, limit: int) ->
                     name = (p.get("name") or "").strip()
                     if not name:
                         continue
-                    bad = ["slag", "subdivision", "blast furnace", "heating plant",
-                           "boiler plant", "distribution", "manufacturing"]
-                    ok_words = ["heating", "cooling", "hvac", "air", "electric", "excavat",
-                                "grading", "plumb", "mechanical", "service", "refriger"]
+                    bad = [
+                        "slag",
+                        "subdivision",
+                        "blast furnace",
+                        "heating plant",
+                        "boiler plant",
+                        "distribution",
+                        "manufacturing",
+                    ]
+                    ok_words = [
+                        "heating",
+                        "cooling",
+                        "hvac",
+                        "air",
+                        "electric",
+                        "excavat",
+                        "grading",
+                        "plumb",
+                        "mechanical",
+                        "service",
+                        "refriger",
+                    ]
                     if any(b in name.lower() for b in bad):
                         continue
                     if not any(b in name.lower() for b in ok_words):
                         continue
                     ap = p.get("address", {})
-                    elements.append({
-                        "type": "nominatim",
-                        "id":   p.get("place_id", ""),
-                        "tags": {
-                            "name":          name,
-                            "addr:housenumber": ap.get("house_number", ""),
-                            "addr:street":   ap.get("road", ""),
-                            "addr:city":     ap.get("city") or ap.get("town", ""),
-                            "addr:state":    ap.get("state", ""),
-                            "addr:postcode": ap.get("postcode", ""),
-                        },
-                    })
+                    elements.append(
+                        {
+                            "type": "nominatim",
+                            "id": p.get("place_id", ""),
+                            "tags": {
+                                "name": name,
+                                "addr:housenumber": ap.get("house_number", ""),
+                                "addr:street": ap.get("road", ""),
+                                "addr:city": ap.get("city") or ap.get("town", ""),
+                                "addr:state": ap.get("state", ""),
+                                "addr:postcode": ap.get("postcode", ""),
+                            },
+                        }
+                    )
         except Exception:
             pass
 
@@ -95,24 +121,34 @@ def scrape_osm(trade: str, lat: float, lon: float, radius_m: int, limit: int) ->
         name = tags.get("name", "").strip()
         if not name or len(name) < 2:
             continue
-        pid = f"osm:{el.get('type','')}:{el.get('id','')}"
+        pid = f"osm:{el.get('type', '')}:{el.get('id', '')}"
         if pid in seen:
             continue
         seen.add(pid)
-        addr = ", ".join(filter(None, [
-            tags.get("addr:housenumber", ""),
-            tags.get("addr:street", ""),
-            tags.get("addr:city", ""),
-            tags.get("addr:state", ""),
-            tags.get("addr:postcode", ""),
-        ]))
-        out.append(Contractor(
-            trade=trade, name=name,
-            phone=tags.get("phone") or tags.get("contact:phone", ""),
-            website=tags.get("website") or tags.get("contact:website", ""),
-            email=tags.get("email") or tags.get("contact:email", ""),
-            address=addr, source="OSM", place_id=pid,
-        ))
+        addr = ", ".join(
+            filter(
+                None,
+                [
+                    tags.get("addr:housenumber", ""),
+                    tags.get("addr:street", ""),
+                    tags.get("addr:city", ""),
+                    tags.get("addr:state", ""),
+                    tags.get("addr:postcode", ""),
+                ],
+            )
+        )
+        out.append(
+            Contractor(
+                trade=trade,
+                name=name,
+                phone=tags.get("phone") or tags.get("contact:phone", ""),
+                website=tags.get("website") or tags.get("contact:website", ""),
+                email=tags.get("email") or tags.get("contact:email", ""),
+                address=addr,
+                source="OSM",
+                place_id=pid,
+            )
+        )
         if len(out) >= limit:
             break
 

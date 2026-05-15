@@ -1,15 +1,24 @@
 from __future__ import annotations
-import hashlib, json, os, sqlite3, threading, time
+
+import hashlib
+import json
 import logging
-from config import TTL_CONTACT as _TTL_CONTACT, TTL_DDG as _TTL_DDG
+import os
+import sqlite3
+import threading
+import time
+
+from config import TTL_CONTACT as _TTL_CONTACT
+from config import TTL_DDG as _TTL_DDG
 
 logger = logging.getLogger("ContractorFinder")
 
 
 class SearchHistory:
     """Saves last 20 location searches to ~/.contractor_search_history.json"""
+
     PATH = os.path.join(os.path.expanduser("~"), ".contractor_search_history.json")
-    MAX  = 20
+    MAX = 20
 
     def load(self) -> list[str]:
         try:
@@ -28,7 +37,7 @@ class SearchHistory:
         history.insert(0, location)
         try:
             with open(self.PATH, "w", encoding="utf-8") as f:
-                json.dump(history[:self.MAX], f, indent=2)
+                json.dump(history[: self.MAX], f, indent=2)
         except Exception as e:
             logger.warning(f"Could not save search history: {e}")
 
@@ -38,9 +47,10 @@ class ContactCache:
     SQLite cache for contractor contact data.
     TTL: 7 days for contact data, 1 day for DDG results.
     """
-    DB_PATH     = os.path.join(os.path.expanduser("~"), ".contractor_finder_cache.db")
+
+    DB_PATH = os.path.join(os.path.expanduser("~"), ".contractor_finder_cache.db")
     TTL_CONTACT = _TTL_CONTACT
-    TTL_DDG     = _TTL_DDG
+    TTL_DDG = _TTL_DDG
 
     def __init__(self):
         self._lock = threading.Lock()
@@ -50,16 +60,20 @@ class ContactCache:
     def _init_db(self):
         try:
             conn = sqlite3.connect(self.DB_PATH, check_same_thread=False)
-            conn.execute("""CREATE TABLE IF NOT EXISTS contacts (
+            conn.execute(
+                """CREATE TABLE IF NOT EXISTS contacts (
                 key TEXT PRIMARY KEY,
                 email TEXT, phone TEXT, website TEXT,
                 created_at REAL
-            )""")
-            conn.execute("""CREATE TABLE IF NOT EXISTS ddg_cache (
+            )"""
+            )
+            conn.execute(
+                """CREATE TABLE IF NOT EXISTS ddg_cache (
                 query_hash TEXT PRIMARY KEY,
                 results TEXT,
                 created_at REAL
-            )""")
+            )"""
+            )
             conn.execute("CREATE INDEX IF NOT EXISTS idx_contacts_ts ON contacts(created_at)")
             conn.commit()
             self._conn = conn
@@ -72,8 +86,7 @@ class ContactCache:
         try:
             with self._lock:
                 row = self._conn.execute(
-                    "SELECT email, phone, website, created_at FROM contacts WHERE key=?",
-                    (key,)
+                    "SELECT email, phone, website, created_at FROM contacts WHERE key=?", (key,)
                 ).fetchone()
                 if row and (time.time() - row[3]) < self.TTL_CONTACT:
                     return {"email": row[0], "phone": row[1], "website": row[2]}
@@ -88,7 +101,7 @@ class ContactCache:
             with self._lock:
                 self._conn.execute(
                     "INSERT OR REPLACE INTO contacts VALUES (?,?,?,?,?)",
-                    (key, email, phone, website, time.time())
+                    (key, email, phone, website, time.time()),
                 )
                 self._conn.commit()
         except Exception as e:
@@ -101,8 +114,7 @@ class ContactCache:
         try:
             with self._lock:
                 row = self._conn.execute(
-                    "SELECT results, created_at FROM ddg_cache WHERE query_hash=?",
-                    (qhash,)
+                    "SELECT results, created_at FROM ddg_cache WHERE query_hash=?", (qhash,)
                 ).fetchone()
                 if row and (time.time() - row[1]) < self.TTL_DDG:
                     return json.loads(row[0])
@@ -118,7 +130,7 @@ class ContactCache:
             with self._lock:
                 self._conn.execute(
                     "INSERT OR REPLACE INTO ddg_cache VALUES (?,?,?)",
-                    (qhash, json.dumps(results), time.time())
+                    (qhash, json.dumps(results), time.time()),
                 )
                 self._conn.commit()
         except Exception as e:

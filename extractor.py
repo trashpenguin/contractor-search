@@ -1,12 +1,10 @@
 from __future__ import annotations
-import re
-import logging
 
-from constants import (
-    EMAIL_RE, PHONE_RE,
-    BAD_EMAIL, BAD_EMAIL_DOMAINS, ROLE_EMAILS,
-)
-from compat import HAS_SCRAPLING, HAS_DNS, Adaptor
+import logging
+import re
+
+from compat import HAS_DNS, HAS_SCRAPLING, Adaptor
+from constants import BAD_EMAIL, BAD_EMAIL_DOMAINS, EMAIL_RE, PHONE_RE, ROLE_EMAILS
 
 logger = logging.getLogger("ContractorFinder")
 
@@ -20,6 +18,7 @@ def email_role_warning(email: str) -> str:
 
 def _clean_email(e: str) -> str:
     from urllib.parse import unquote as _uq
+
     e = _uq(e)  # decode %20, %40, etc. before stripping
     return e.strip().strip(".,;:()[]{}<>\"'").lower()
 
@@ -72,20 +71,23 @@ def extract_contacts(html: str) -> tuple[str, str]:
 
     # Strategy 1: JSON-LD / schema.org
     import json as _j
+
     for match in re.finditer(
         r'<script[^>]+type=["\']application/ld\+json["\'][^>]*>(.*?)</script>',
-        html, re.DOTALL | re.IGNORECASE
+        html,
+        re.DOTALL | re.IGNORECASE,
     ):
         try:
-            data  = _j.loads(match.group(1))
+            data = _j.loads(match.group(1))
             items = data if isinstance(data, list) else [data]
             for item in items:
                 sub_items = item.get("@graph", [item])
-                for si in (sub_items if isinstance(sub_items, list) else [sub_items]):
+                for si in sub_items if isinstance(sub_items, list) else [sub_items]:
                     if not email:
                         e = si.get("email", "") or (
                             si.get("contactPoint", {}).get("email", "")
-                            if isinstance(si.get("contactPoint"), dict) else ""
+                            if isinstance(si.get("contactPoint"), dict)
+                            else ""
                         )
                         e = _clean_email(str(e)) if e else ""
                         if _ok_email(e):
@@ -155,8 +157,15 @@ def extract_contacts(html: str) -> tuple[str, str]:
 
         # Strategy 5: footer + contact section scan
         if not email or not phone:
-            for sel in ["footer", "#footer", ".footer", "#contact", ".contact",
-                        "[id*='contact']", "[class*='contact']"]:
+            for sel in [
+                "footer",
+                "#footer",
+                ".footer",
+                "#contact",
+                ".contact",
+                "[id*='contact']",
+                "[class*='contact']",
+            ]:
                 section = page.css(sel)
                 if not section:
                     continue
@@ -180,8 +189,8 @@ def extract_contacts(html: str) -> tuple[str, str]:
                 encoded = el.attrib.get("data-cfemail", "")
                 if encoded:
                     try:
-                        b      = bytes.fromhex(encoded)
-                        key    = b[0]
+                        b = bytes.fromhex(encoded)
+                        key = b[0]
                         decoded = "".join(chr(c ^ key) for c in b[1:])
                         e = _clean_email(decoded)
                         if _ok_email(e):
@@ -231,10 +240,14 @@ def extract_contacts(html: str) -> tuple[str, str]:
                 break
         if not email:
             for pat, grp in [
-                (r"([\w.+-]+)\s*\[at\]\s*([\w.-]+\.[a-z]{2,})",
-                 lambda m: f"{m.group(1)}@{m.group(2)}"),
-                (r"([\w.+-]+)\s*\(at\)\s*([\w.-]+\.[a-z]{2,})",
-                 lambda m: f"{m.group(1)}@{m.group(2)}"),
+                (
+                    r"([\w.+-]+)\s*\[at\]\s*([\w.-]+\.[a-z]{2,})",
+                    lambda m: f"{m.group(1)}@{m.group(2)}",
+                ),
+                (
+                    r"([\w.+-]+)\s*\(at\)\s*([\w.-]+\.[a-z]{2,})",
+                    lambda m: f"{m.group(1)}@{m.group(2)}",
+                ),
             ]:
                 m = re.search(pat, html, re.I)
                 if m:
@@ -254,7 +267,7 @@ def verify_email(email: str) -> tuple[str, str]:
     Email verification via syntax + MX record only.
     SMTP RCPT TO removed: unreliable in 2026 (tarpitting, greylisting, catch-all).
     """
-    if not re.match(r'^[A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,}$', email, re.I):
+    if not re.match(r"^[A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,}$", email, re.I):
         return "invalid", "Bad syntax"
     if not _ok_email(email):
         return "invalid", "Filtered (spam/CDN pattern)"
@@ -262,6 +275,7 @@ def verify_email(email: str) -> tuple[str, str]:
     if not HAS_DNS:
         return "unknown", "dnspython not installed"
     import dns.resolver as _dns
+
     try:
         mx_records = _dns.resolve(domain, "MX")
         if mx_records:

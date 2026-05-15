@@ -1,34 +1,37 @@
 from __future__ import annotations
-import json, re, time
-import logging
-from dataclasses import asdict
-from urllib.parse import quote_plus, unquote, urlparse, parse_qs
 
-from constants import TRADE_KW, PHONE_RE, SCRAPE_SKIP
-from compat import HAS_SCRAPLING, StealthySession, Adaptor
+import json
+import logging
+import re
+import time
+from dataclasses import asdict
+from urllib.parse import parse_qs, quote_plus, unquote, urlparse
+
 from cache import CACHE
-from proxy import PROXY_MGR
+from compat import HAS_SCRAPLING, Adaptor, StealthySession
+from constants import PHONE_RE, SCRAPE_SKIP, TRADE_KW
+from extractor import _parse_phone
 from http_client import http_get
-from extractor import extract_contacts, _parse_phone
 from models import Contractor
+from proxy import PROXY_MGR
 
 logger = logging.getLogger("ContractorFinder")
 
 # Names that look like article/listicle titles rather than real business names
 _LISTICLE_RE = re.compile(
-    r'(?:'
-    r'^\d+\s+best\b'           # "10 Best HVAC..."
-    r'|^the\s+\d+\b'           # "The 10 Best..."
-    r'|^top[\s\-]rated\b'      # "Top-Rated HVAC..."
-    r'|^top\s+\d+\b'           # "Top 10..."
-    r'|^best\s+\w'             # "Best HVAC..."
-    r'|\bcontractors\s+in\b'   # "...Contractors in Warren..."
-    r'|\bcompanies\s+in\b'     # "...Companies in..."
-    r'|\bservices\s+in\b'      # "...Services in Warren..."
-    r'|\bexperts\s+in\b'       # "...Experts in..."
-    r'|\bproviders\s+in\b'     # "...Providers in..."
-    r')',
-    re.I
+    r"(?:"
+    r"^\d+\s+best\b"  # "10 Best HVAC..."
+    r"|^the\s+\d+\b"  # "The 10 Best..."
+    r"|^top[\s\-]rated\b"  # "Top-Rated HVAC..."
+    r"|^top\s+\d+\b"  # "Top 10..."
+    r"|^best\s+\w"  # "Best HVAC..."
+    r"|\bcontractors\s+in\b"  # "...Contractors in Warren..."
+    r"|\bcompanies\s+in\b"  # "...Companies in..."
+    r"|\bservices\s+in\b"  # "...Services in Warren..."
+    r"|\bexperts\s+in\b"  # "...Experts in..."
+    r"|\bproviders\s+in\b"  # "...Providers in..."
+    r")",
+    re.I,
 )
 
 
@@ -37,6 +40,7 @@ def _is_listicle_name(name: str) -> bool:
 
 
 # ── __NEXT_DATA__ parser ──────────────────────────────────────────────────────
+
 
 def _parse_next_data(html: str) -> list[dict]:
     """
@@ -47,7 +51,8 @@ def _parse_next_data(html: str) -> list[dict]:
     """
     m = re.search(
         r'<script[^>]+id=["\']__NEXT_DATA__["\'][^>]*>(.*?)</script>',
-        html, re.DOTALL | re.IGNORECASE,
+        html,
+        re.DOTALL | re.IGNORECASE,
     )
     if not m:
         return []
@@ -58,15 +63,14 @@ def _parse_next_data(html: str) -> list[dict]:
 
     # Try known paths first, then fall back to recursive search
     businesses = (
-        _try_path(data, ["props", "pageProps", "searchPageProps",
-                         "mainContentComponentsListProps"])
+        _try_path(data, ["props", "pageProps", "searchPageProps", "mainContentComponentsListProps"])
         or _try_path(data, ["props", "pageProps", "searchPageProps", "businessList"])
         or _try_path(data, ["props", "pageProps", "businessList"])
         or _recursive_find_businesses(data)
     )
 
     out = []
-    for item in (businesses or []):
+    for item in businesses or []:
         # Items are sometimes wrapped in a searchResultBusiness key
         biz = item.get("searchResultBusiness") or item
         if not isinstance(biz, dict):
@@ -75,12 +79,16 @@ def _parse_next_data(html: str) -> list[dict]:
         biz_url = biz.get("businessUrl") or biz.get("url") or biz.get("href", "")
         if not name or not biz_url or _is_listicle_name(name):
             continue
-        out.append({
-            "name":     name,
-            "biz_url":  biz_url if biz_url.startswith("http") else f"https://www.yelp.com{biz_url}",
-            "phone":    biz.get("displayPhone") or biz.get("phone", ""),
-            "address":  biz.get("formattedAddress") or biz.get("address", ""),
-        })
+        out.append(
+            {
+                "name": name,
+                "biz_url": (
+                    biz_url if biz_url.startswith("http") else f"https://www.yelp.com{biz_url}"
+                ),
+                "phone": biz.get("displayPhone") or biz.get("phone", ""),
+                "address": biz.get("formattedAddress") or biz.get("address", ""),
+            }
+        )
     return out
 
 
@@ -105,9 +113,11 @@ def _recursive_find_businesses(node, depth: int = 0) -> list | None:
         return None
     if isinstance(node, list) and len(node) >= 2:
         sample = node[0] if isinstance(node[0], dict) else {}
-        inner  = sample.get("searchResultBusiness", sample)
-        if isinstance(inner, dict) and inner.get("name") and (
-            inner.get("businessUrl") or inner.get("url")
+        inner = sample.get("searchResultBusiness", sample)
+        if (
+            isinstance(inner, dict)
+            and inner.get("name")
+            and (inner.get("businessUrl") or inner.get("url"))
         ):
             return node
     if isinstance(node, dict):
@@ -125,6 +135,7 @@ def _recursive_find_businesses(node, depth: int = 0) -> list | None:
 
 # ── HTML card fallback (CSS selectors — used when __NEXT_DATA__ fails) ────────
 
+
 def _parse_html_cards(html: str, limit: int) -> list[dict]:
     """
     Fallback CSS selector parsing. Less reliable than __NEXT_DATA__ but covers
@@ -132,21 +143,26 @@ def _parse_html_cards(html: str, limit: int) -> list[dict]:
     """
     if not HAS_SCRAPLING or not html or len(html) < 500:
         return []
-    page  = Adaptor(html)
+    page = Adaptor(html)
     cards = (
         page.css("li[class*='businessList']")
         or page.css("div[data-testid*='serp']")
         or page.css("ul > li[class*='css-']")
         or page.css("div[class*='container__']")
     )
-    out  = []
+    out = []
     seen = set()
     for card in cards:
         if len(out) >= limit:
             break
         name = ""
-        for sel in ["a[class*='businessName'] span", "h3 a span",
-                    "span[class*='display-name']", "a[name] span", "h3 span"]:
+        for sel in [
+            "a[class*='businessName'] span",
+            "h3 a span",
+            "span[class*='display-name']",
+            "a[name] span",
+            "h3 span",
+        ]:
             els = card.css(sel)
             if els:
                 name = els[0].text.strip()
@@ -173,8 +189,7 @@ def _parse_html_cards(html: str, limit: int) -> list[dict]:
             phone = m.group(1)
 
         address = ""
-        for sel in ["address", "p[class*='css-qgunke']",
-                    "[class*='secondaryAttributes'] address"]:
+        for sel in ["address", "p[class*='css-qgunke']", "[class*='secondaryAttributes'] address"]:
             els = card.css(sel)
             if els:
                 address = els[0].get_all_text(separator=" ").strip()[:100]
@@ -185,6 +200,7 @@ def _parse_html_cards(html: str, limit: int) -> list[dict]:
 
 
 # ── Individual business page ──────────────────────────────────────────────────
+
 
 def _extract_biz_page(html: str) -> tuple[str, str]:
     """
@@ -198,10 +214,11 @@ def _extract_biz_page(html: str) -> tuple[str, str]:
     # JSON-LD — most stable source on biz pages
     for match in re.finditer(
         r'<script[^>]+type=["\']application/ld\+json["\'][^>]*>(.*?)</script>',
-        html, re.DOTALL | re.IGNORECASE,
+        html,
+        re.DOTALL | re.IGNORECASE,
     ):
         try:
-            data  = json.loads(match.group(1))
+            data = json.loads(match.group(1))
             items = data if isinstance(data, list) else [data]
             for item in items:
                 if not phone:
@@ -210,9 +227,11 @@ def _extract_biz_page(html: str) -> tuple[str, str]:
                         phone = _parse_phone(str(raw)) or str(raw)[:20]
                 if not website:
                     raw_url = item.get("url") or item.get("sameAs", "")
-                    if (isinstance(raw_url, str)
-                            and raw_url.startswith("http")
-                            and "yelp.com" not in raw_url):
+                    if (
+                        isinstance(raw_url, str)
+                        and raw_url.startswith("http")
+                        and "yelp.com" not in raw_url
+                    ):
                         website = raw_url
             if phone and website:
                 break
@@ -245,7 +264,7 @@ def _extract_biz_page(html: str) -> tuple[str, str]:
                 if not href:
                     continue
                 try:
-                    qs   = parse_qs(urlparse(href).query)
+                    qs = parse_qs(urlparse(href).query)
                     real = unquote(qs.get("url", [""])[0])
                     if real.startswith("http") and not any(d in real for d in SCRAPE_SKIP):
                         website = real
@@ -266,6 +285,7 @@ def _extract_biz_page(html: str) -> tuple[str, str]:
 
 # ── Main scraper ──────────────────────────────────────────────────────────────
 
+
 def _yelp_search_fetcher(term: str, loc: str, limit: int) -> list[dict]:
     """
     Phase 1: Try Yelp search via curl_cffi (Fetcher).
@@ -276,7 +296,7 @@ def _yelp_search_fetcher(term: str, loc: str, limit: int) -> list[dict]:
     for offset in range(0, min(limit, 60), 10):
         if len(results) >= limit:
             break
-        url  = f"https://www.yelp.com/search?find_desc={term}&find_loc={loc}&start={offset}"
+        url = f"https://www.yelp.com/search?find_desc={term}&find_loc={loc}&start={offset}"
         html = http_get(url, timeout=12)
         if not html or len(html) < 500:
             logger.debug(f"[Yelp/curl] empty at offset {offset}")
@@ -303,7 +323,7 @@ def _yelp_search_session(term: str, loc: str, limit: int) -> list[dict]:
     results: list[dict] = []
     try:
         proxy_url = PROXY_MGR.get() if PROXY_MGR.ready else None
-        sk: dict  = {"headless": True, "network_idle": True, "disable_resources": False}
+        sk: dict = {"headless": True, "network_idle": True, "disable_resources": False}
         if proxy_url:
             sk["proxy"] = proxy_url
 
@@ -311,12 +331,14 @@ def _yelp_search_session(term: str, loc: str, limit: int) -> list[dict]:
             for offset in range(0, min(limit, 60), 10):
                 if len(results) >= limit:
                     break
-                url = (f"https://www.yelp.com/search"
-                       f"?find_desc={term}&find_loc={loc}&start={offset}")
+                url = (
+                    f"https://www.yelp.com/search"
+                    f"?find_desc={term}&find_loc={loc}&start={offset}"
+                )
                 try:
-                    resp   = session.fetch(url, wait=6000)
+                    resp = session.fetch(url, wait=6000)
                     status = getattr(resp, "status", 200) or 200
-                    html   = resp.body or b""
+                    html = resp.body or b""
                     if isinstance(html, bytes):
                         html = html.decode("utf-8", errors="ignore")
                 except Exception as e:
@@ -331,8 +353,7 @@ def _yelp_search_session(term: str, loc: str, limit: int) -> list[dict]:
                     break
                 results.extend(batch)
                 logger.info(
-                    f"[Yelp/session] offset {offset}: {len(batch)} found "
-                    f"(total {len(results)})"
+                    f"[Yelp/session] offset {offset}: {len(batch)} found " f"(total {len(results)})"
                 )
                 if len(batch) < 5:
                     break
@@ -352,11 +373,11 @@ def _yelp_ddg_fallback(kw: str, city_raw: str, state: str, limit: int) -> list[d
       C) contractor website → use DDG title as name + URL as website directly;
                               no Yelp biz page needed, enricher fills phone/email
     """
-    from scrapers.ddg import ddg_search
     from constants import SKIP_DOMAINS
+    from scrapers.ddg import ddg_search
 
     results: list[dict] = []
-    seen:    set[str]   = set()
+    seen: set[str] = set()
 
     queries = [
         quote_plus(f"{kw} contractor {city_raw} {state}"),
@@ -377,12 +398,19 @@ def _yelp_ddg_fallback(kw: str, city_raw: str, state: str, limit: int) -> list[d
             if "yelp.com/biz/" in url:
                 seen.add(url)
                 slug = url.split("/biz/")[-1].split("?")[0]
-                name = re.sub(
-                    rf"-{re.escape(city_raw.lower().replace(' ', '-'))}$",
-                    "", slug, flags=re.I,
-                ).replace("-", " ").title()
-                results.append({"name": name, "biz_url": url,
-                                "phone": "", "address": "", "website": ""})
+                name = (
+                    re.sub(
+                        rf"-{re.escape(city_raw.lower().replace(' ', '-'))}$",
+                        "",
+                        slug,
+                        flags=re.I,
+                    )
+                    .replace("-", " ")
+                    .title()
+                )
+                results.append(
+                    {"name": name, "biz_url": url, "phone": "", "address": "", "website": ""}
+                )
                 continue
 
             # Strategy B: any other Yelp URL — skip, they're also 403'd
@@ -409,12 +437,13 @@ def _yelp_ddg_fallback(kw: str, city_raw: str, state: str, limit: int) -> list[d
             pm = PHONE_RE.search(snippet or "")
             if pm:
                 phone = pm.group(1)
-            results.append({"name": name, "biz_url": "",
-                            "phone": phone, "address": "", "website": url})
+            results.append(
+                {"name": name, "biz_url": "", "phone": phone, "address": "", "website": url}
+            )
 
     if results:
         from_yelp = sum(1 for r in results if r["biz_url"])
-        from_web  = len(results) - from_yelp
+        from_web = len(results) - from_yelp
         logger.info(
             f"[Yelp/DDG] fallback: {len(results)} total "
             f"({from_yelp} Yelp biz pages, {from_web} contractor websites)"
@@ -433,21 +462,21 @@ def scrape_yelp(trade: str, location: str, limit: int) -> list[Contractor]:
     never the StealthySession — individual /biz/ pages are less aggressively
     blocked, and http_get avoids reusing a session that Yelp already flagged.
     """
-    keyword  = TRADE_KW[trade]["yelp"]
+    keyword = TRADE_KW[trade]["yelp"]
     city_raw = location.split(",")[0].strip()
     # Extract 2-letter state code from the location string (e.g. "Warren, MI 48091" → "MI")
     # Old code used "mi" in location which matched "Miami, FL" and returned wrong state.
-    _state_m = re.search(r'\b([A-Z]{2})\b', location.upper())
-    state    = _state_m.group(1) if _state_m else location.split(",")[-1].strip()[:2].upper()
+    _state_m = re.search(r"\b([A-Z]{2})\b", location.upper())
+    state = _state_m.group(1) if _state_m else location.split(",")[-1].strip()[:2].upper()
 
     cache_key = f"yelp_{trade}_{city_raw}".lower()
-    cached    = CACHE.get_ddg(cache_key)
+    cached = CACHE.get_ddg(cache_key)
     if cached:
         logger.info(f"[Yelp] {trade}: {len(cached)} from cache")
         return [Contractor(**r) for r in cached if isinstance(r, dict)][:limit]
 
     term = quote_plus(keyword)
-    loc  = quote_plus(f"{city_raw}, {state}")
+    loc = quote_plus(f"{city_raw}, {state}")
 
     # ── Phase 1: curl_cffi ────────────────────────────────────────────────────
     raw_businesses = _yelp_search_fetcher(term, loc, limit)
@@ -464,14 +493,14 @@ def scrape_yelp(trade: str, location: str, limit: int) -> list[Contractor]:
 
     # ── Biz page enrichment (http_get — not the blocked session) ─────────────
     out: list[Contractor] = []
-    seen_names: set[str]  = set()
+    seen_names: set[str] = set()
     for biz in raw_businesses[:limit]:
         name = biz.get("name", "").strip()
         if not name or name in seen_names:
             continue
         seen_names.add(name)
-        phone   = biz.get("phone", "")
-        website = biz.get("website", "")   # may already be set by DDG Strategy C
+        phone = biz.get("phone", "")
+        website = biz.get("website", "")  # may already be set by DDG Strategy C
 
         biz_url = biz.get("biz_url", "")
         if biz_url:
@@ -483,15 +512,18 @@ def scrape_yelp(trade: str, location: str, limit: int) -> list[Contractor]:
                     phone = bp
                 if not website and bw:
                     website = bw
-            logger.debug(
-                f"[Yelp/biz] {name[:30]} → phone={bool(phone)} website={bool(website)}"
-            )
+            logger.debug(f"[Yelp/biz] {name[:30]} → phone={bool(phone)} website={bool(website)}")
             time.sleep(0.8)
-        out.append(Contractor(
-            trade=trade, name=name, phone=phone,
-            website=website, address=biz.get("address", ""),
-            source="Yelp",
-        ))
+        out.append(
+            Contractor(
+                trade=trade,
+                name=name,
+                phone=phone,
+                website=website,
+                address=biz.get("address", ""),
+                source="Yelp",
+            )
+        )
 
     out = out[:limit]
     if out:

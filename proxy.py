@@ -1,21 +1,27 @@
 from __future__ import annotations
-import concurrent.futures, random, re, threading, time
-import urllib.request as _ur
-import logging
 
-from constants import PROXY_SOURCES, _FATAL_PROXY_ERRORS
+import concurrent.futures
+import logging
+import random
+import re
+import threading
+import time
+import urllib.request as _ur
+
+from constants import _FATAL_PROXY_ERRORS, PROXY_SOURCES
 
 logger = logging.getLogger("ContractorFinder")
 
 
 class ProxyEntry:
     """Tracks health of one proxy."""
+
     __slots__ = ("url", "score", "uses", "latency")
 
     def __init__(self, url: str, latency: float):
-        self.url     = url
-        self.score   = 5
-        self.uses    = 0
+        self.url = url
+        self.score = 5
+        self.uses = 0
         self.latency = latency
 
 
@@ -24,11 +30,12 @@ class ProxyManager:
     Elite proxy pool with health scoring, sticky sessions, and circuit breakers.
     Traffic routing: OSM/company sites bypass proxy; directories use proxy.
     """
+
     def __init__(self):
-        self._lock    = threading.Lock()
-        self._pool:   list[ProxyEntry] = []
+        self._lock = threading.Lock()
+        self._pool: list[ProxyEntry] = []
         self._cur_idx = 0
-        self._loaded  = False
+        self._loaded = False
         self._loading = False
         self._enabled = False
         self.STICKY_LIMIT = 10
@@ -65,14 +72,14 @@ class ProxyManager:
             except Exception as e:
                 logger.info(f"[Proxy] Source failed: {type(e).__name__}")
 
-        test_url  = "https://httpbin.org/ip"
+        test_url = "https://httpbin.org/ip"
         test_http = "http://httpbin.org/ip"
         scored: list[ProxyEntry] = []
         random.shuffle(raw)
 
         def _test(proxy: str):
             try:
-                t0     = time.time()
+                t0 = time.time()
                 opener = _ur.build_opener(_ur.ProxyHandler({"http": proxy, "https": proxy}))
                 with opener.open(test_url, timeout=4) as r:
                     if r.status == 200:
@@ -84,7 +91,7 @@ class ProxyManager:
                 if any(fe in err for fe in _FATAL_PROXY_ERRORS):
                     return None
                 try:
-                    t0      = time.time()
+                    t0 = time.time()
                     opener2 = _ur.build_opener(_ur.ProxyHandler({"http": proxy, "https": proxy}))
                     with opener2.open(test_http, timeout=3) as r2:
                         if r2.status == 200:
@@ -102,8 +109,8 @@ class ProxyManager:
 
         scored.sort(key=lambda e: e.latency)
         with self._lock:
-            self._pool    = scored
-            self._loaded  = True
+            self._pool = scored
+            self._loaded = True
             self._loading = False
 
         if scored:
@@ -115,8 +122,10 @@ class ProxyManager:
     def get_for(self, url: str) -> str | None:
         """Return proxy URL for this URL, or None for direct connection."""
         from urllib.parse import urlparse
+
         no_proxy_domains = (
-            "overpass-api.de", "overpass.kumi.systems",
+            "overpass-api.de",
+            "overpass.kumi.systems",
             "nominatim.openstreetmap.org",
         )
         if any(d in url for d in no_proxy_domains):
@@ -150,7 +159,7 @@ class ProxyManager:
     def report(self, proxy: str, success: bool, error: str = ""):
         if not proxy:
             return
-        is_fatal   = any(fe in error for fe in _FATAL_PROXY_ERRORS)
+        is_fatal = any(fe in error for fe in _FATAL_PROXY_ERRORS)
         is_timeout = "timeout" in error.lower() or "timed out" in error.lower()
         with self._lock:
             for entry in self._pool:
@@ -159,7 +168,7 @@ class ProxyManager:
                         entry.score = -99
                         logger.info(f"[Proxy] Circuit broken: {proxy[7:30]}")
                     elif is_timeout:
-                        entry.score = -99   # one timeout = dead for free proxies
+                        entry.score = -99  # one timeout = dead for free proxies
                         logger.info(f"[Proxy] Circuit broken (timeout): {proxy[7:30]}")
                     elif success:
                         entry.score = min(entry.score + 1, 5)

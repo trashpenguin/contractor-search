@@ -1,5 +1,7 @@
 from __future__ import annotations
-import threading, time
+
+import threading
+import time
 
 from PySide6.QtCore import QThread, Signal
 
@@ -8,26 +10,33 @@ from search import run_search
 
 
 class SearchWorker(QThread):
-    progress    = Signal(int, str)
-    result      = Signal(object)
-    finished    = Signal(bool, str)
-    source_done = Signal(str, str, int)   # source, trade, count (-1 = error)
+    progress = Signal(int, str)
+    result = Signal(object)
+    finished = Signal(bool, str)
+    source_done = Signal(str, str, int)  # source, trade, count (-1 = error)
 
     def __init__(self, location, trades, limit, radius_m, enrich, sources):
         super().__init__()
         self.location = location
-        self.trades   = trades
-        self.limit    = limit
+        self.trades = trades
+        self.limit = limit
         self.radius_m = radius_m
-        self.enrich   = enrich
-        self.sources  = sources
-        self._stop    = threading.Event()
+        self.enrich = enrich
+        self.sources = sources
+        self._stop = threading.Event()
 
     def run(self):
         run_search(
-            self.location, self.trades, self.limit, self.radius_m,
-            self.enrich, self.sources,
-            self.progress.emit, self.result.emit, self.finished.emit, self._stop,
+            self.location,
+            self.trades,
+            self.limit,
+            self.radius_m,
+            self.enrich,
+            self.sources,
+            self.progress.emit,
+            self.result.emit,
+            self.finished.emit,
+            self._stop,
             source_cb=self.source_done.emit,
         )
 
@@ -37,12 +46,12 @@ class SearchWorker(QThread):
 
 class VerifyWorker(QThread):
     progress = Signal(int, str)
-    result   = Signal(int, str, str)
+    result = Signal(int, str, str)
     finished = Signal()
 
     def __init__(self, rows):
         super().__init__()
-        self.rows  = rows
+        self.rows = rows
         self._stop = threading.Event()
 
     def run(self):

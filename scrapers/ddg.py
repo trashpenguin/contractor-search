@@ -1,6 +1,8 @@
 from __future__ import annotations
-import threading, time
+
 import logging
+import threading
+import time
 
 from cache import CACHE
 from compat import HAS_SCRAPLING, Adaptor
@@ -18,6 +20,7 @@ def _ddg_decode(href: str) -> str:
     if "uddg=" in href:
         try:
             from urllib.parse import unquote
+
             return unquote(href.split("uddg=")[1].split("&")[0])
         except Exception:
             pass
@@ -54,8 +57,8 @@ def ddg_search(query: str, pages: int = 2) -> list[tuple[str, str, str]]:
     results = []
     for page_idx in range(pages):
         _ddg_rate_limit()
-        dc   = f"&dc={page_idx * 11}" if page_idx > 0 else ""
-        url  = f"https://html.duckduckgo.com/html/?q={query}{dc}"
+        dc = f"&dc={page_idx * 11}" if page_idx > 0 else ""
+        url = f"https://html.duckduckgo.com/html/?q={query}{dc}"
         html = http_get(url, timeout=15, use_proxy=True)
         if not html or not HAS_SCRAPLING:
             break
@@ -63,16 +66,16 @@ def ddg_search(query: str, pages: int = 2) -> list[tuple[str, str, str]]:
             logger.debug("[DDG] Rate-limited (short response), backing off 20s")
             time.sleep(20)
             break
-        page  = Adaptor(html)
+        page = Adaptor(html)
         found = 0
         for card in page.css("div.result"):
             title_els = card.css("a.result__a")
             if not title_els:
                 continue
-            name     = title_els[0].text.strip()
+            name = title_els[0].text.strip()
             raw_href = title_els[0].attrib.get("href", "")
             real_url = _ddg_decode(raw_href)
-            snippet  = ""
+            snippet = ""
             snip_els = card.css("a.result__snippet")
             if snip_els:
                 snippet = snip_els[0].get_all_text(separator=" ")
