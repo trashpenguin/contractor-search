@@ -13,6 +13,7 @@ from http_client import get_event_loop
 from models import Contractor
 from scrapers.ddg import ddg_search
 from scrapers.google import scrape_google
+from scrapers.google_search import scrape_google_search
 from scrapers.osm import scrape_osm
 from scrapers.yellowpages import scrape_yellowpages
 from scrapers.yelp import scrape_yelp
@@ -23,6 +24,7 @@ SRC_FN = {
     "YellowPages": scrape_yellowpages,
     "Yelp": scrape_yelp,
     "Google": scrape_google,
+    "Google Search": scrape_google_search,
 }
 
 

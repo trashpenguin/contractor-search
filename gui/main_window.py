@@ -142,6 +142,7 @@ class MainWindow(SearchMixin, TableMixin, ExportMixin, QMainWindow):
             "YellowPages": "#f97316",
             "Yelp": "#ef4444",
             "Google": "#34d399",
+            "Google Search": "#60a5fa",
         }
         for s, col in src_colors.items():
             cb = QCheckBox(s)
@@ -199,7 +200,7 @@ class MainWindow(SearchMixin, TableMixin, ExportMixin, QMainWindow):
         sr = QHBoxLayout()
         sr.setSpacing(6)
         self._src_labels: dict[str, QLabel] = {}
-        for src in ["OSM", "YellowPages", "Yelp", "Google"]:
+        for src in ["OSM", "YellowPages", "Yelp", "Google", "Google Search"]:
             lbl = QLabel(f"{src}: —")
             lbl.setStyleSheet(_SRC_IDLE_STYLE)
             self._src_labels[src] = lbl
@@ -229,7 +230,7 @@ class MainWindow(SearchMixin, TableMixin, ExportMixin, QMainWindow):
         self.tf.currentTextChanged.connect(self._filter)
         sf.addWidget(self.tf)
         self.sf2 = QComboBox()
-        self.sf2.addItems(["All Sources", "OSM", "YellowPages", "Yelp", "Google"])
+        self.sf2.addItems(["All Sources", "OSM", "YellowPages", "Yelp", "Google", "Google Search"])
         self.sf2.setFixedWidth(130)
         self.sf2.setFixedHeight(30)
         self.sf2.currentTextChanged.connect(self._filter)
