@@ -308,7 +308,7 @@ async def enrich_batch_async(
             # Step 2: DDG website lookup — capped at DDG_CAP per batch.
             # OSM contractors rarely have websites; hitting DDG 30+ times
             # causes 202 rate-limit responses and blocks all three trades.
-            if not c.website and c.name and ddg_count[0] < DDG_CAP and c.quality_score == 0:
+            if not c.website and c.name and ddg_count[0] < DDG_CAP:
                 ddg_count[0] += 1
                 await asyncio.sleep(0.3)
                 from scrapers.ddg import ddg_search
