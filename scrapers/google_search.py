@@ -112,7 +112,7 @@ def scrape_google_search(trade: str, location: str, limit: int) -> list[Contract
             for term in query_terms:
                 if len(out) >= limit:
                     break
-                query = quote_plus(f'"{term}" "{location}"')
+                query = quote_plus(f'"{term} {location}"')
                 for page_num in range(_PAGES_PER_QUERY):
                     if len(out) >= limit:
                         break
