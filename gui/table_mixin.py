@@ -66,7 +66,7 @@ class TableMixin:
         matched.sort(key=lambda c: c.quality_score, reverse=True)
 
         self.table.setRowCount(0)
-        for i, c in enumerate(matched):
+        for c in matched:
             row = self.table.rowCount()
             self.table.insertRow(row)
             self._fill_row(row, c)
