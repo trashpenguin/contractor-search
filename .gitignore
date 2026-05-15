@@ -12,6 +12,8 @@ env/
 dist/
 build/
 *.egg-info/
+*.zip
+*.spec.bak
 
 # Cache & runtime data
 *.db

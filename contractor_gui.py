@@ -71,10 +71,87 @@ from PySide6.QtWidgets import QApplication  # noqa: E402
 from gui.main_window import MainWindow  # noqa: E402
 from gui.style import STYLE  # noqa: E402
 
+
+def _ensure_browsers() -> None:
+    """First-run check: install Playwright/Patchright Chromium browsers if missing.
+
+    Browsers live in %LOCALAPPDATA%\\ms-playwright and are NOT bundled in the exe
+    (they're ~150 MB). This runs once on first launch and never again.
+    Uses the driver executables shipped with the playwright/patchright packages so
+    it works whether running from source or as a PyInstaller bundle.
+    """
+    import glob as _glob
+    import subprocess
+
+    localappdata = os.environ.get("LOCALAPPDATA", "")
+    if _glob.glob(os.path.join(localappdata, "ms-playwright", "chromium-*")):
+        return  # already installed
+
+    from PySide6.QtCore import Qt, QThread
+    from PySide6.QtCore import Signal as _Signal
+    from PySide6.QtWidgets import QDialog, QLabel, QPlainTextEdit, QPushButton, QVBoxLayout
+
+    class _InstallThread(QThread):
+        line_ready = _Signal(str)
+        done = _Signal(bool)
+
+        def run(self) -> None:
+            ok = True
+            try:
+                from patchright._impl._driver import compute_driver_executable as _pr_drv
+                from playwright._impl._driver import compute_driver_executable as _pw_drv
+
+                for _cde in (_pw_drv, _pr_drv):
+                    drv, env = _cde()
+                    proc = subprocess.Popen(
+                        [str(drv), "install", "chromium"],
+                        env=env,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.STDOUT,
+                        text=True,
+                    )
+                    for ln in proc.stdout:
+                        self.line_ready.emit(ln.rstrip())
+                    proc.wait()
+                    if proc.returncode != 0:
+                        ok = False
+            except Exception as exc:
+                self.line_ready.emit(f"Error during browser install: {exc}")
+                ok = False
+            self.done.emit(ok)
+
+    dlg = QDialog()
+    dlg.setWindowTitle("Contractor Finder — First-Time Setup")
+    dlg.setMinimumWidth(540)
+    dlg.setWindowFlag(Qt.WindowType.WindowCloseButtonHint, False)
+    layout = QVBoxLayout(dlg)
+    layout.addWidget(
+        QLabel(
+            "Downloading browser engines (one-time setup, ~150 MB).\n"
+            "This may take a few minutes. Please wait..."
+        )
+    )
+    log = QPlainTextEdit()
+    log.setReadOnly(True)
+    log.setMaximumBlockCount(300)
+    layout.addWidget(log)
+    btn = QPushButton("Continue")
+    btn.setEnabled(False)
+    layout.addWidget(btn)
+    btn.clicked.connect(dlg.accept)
+
+    thread = _InstallThread()
+    thread.line_ready.connect(log.appendPlainText)
+    thread.done.connect(lambda _ok: btn.setEnabled(True))
+    thread.start()
+    dlg.exec()
+
+
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     app.setStyleSheet(STYLE)
     app.setApplicationName("Contractor Finder v3")
+    _ensure_browsers()
     w = MainWindow()
     w.show()
     sys.exit(app.exec())

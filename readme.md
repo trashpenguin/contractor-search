@@ -8,6 +8,32 @@ Professional desktop application for finding contractors (HVAC, Electrical, Exca
 
 ---
 
+## Quick Start
+
+**Windows (no setup needed):**
+
+```bash
+git clone https://github.com/trashpenguin/contractor-search.git
+cd contractor-search
+```
+
+Then double-click **`launch_windows.bat`** — it installs all dependencies, downloads the browser engines, and launches the app automatically.
+
+**Mac / Linux:**
+
+```bash
+git clone https://github.com/trashpenguin/contractor-search.git
+cd contractor-search
+pip install -r requirements.txt
+python -m playwright install chromium
+python -m patchright install chromium
+python contractor_gui.py
+```
+
+> **Requirements:** Python 3.9+ must be installed. Everything else is handled automatically.
+
+---
+
 ## About
 
 **Contractor Finder** is a PySide6 desktop application that automates the full contractor discovery workflow:

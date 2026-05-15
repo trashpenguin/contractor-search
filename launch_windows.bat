@@ -1,8 +1,8 @@
 @echo off
-title Contractor Finder v3.2 — Async + Proxy Rotation
+title Contractor Finder v3.4
 cd /d "%~dp0"
 echo =============================================
-echo   Contractor Finder v3.2 -- Setup ^& Launch
+echo   Contractor Finder v3.4 -- Setup ^& Launch
 echo =============================================
 echo.
 
@@ -41,7 +41,7 @@ echo [3/4] Installing browser backends...
 python -m playwright install chromium
 python -m patchright install chromium
 
-echo [4/4] Launching Contractor Finder v3.2...
+echo [4/4] Launching Contractor Finder v3.4...
 echo.
 python contractor_gui.py
 pause
