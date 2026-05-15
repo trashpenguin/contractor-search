@@ -240,6 +240,11 @@ class MainWindow(SearchMixin, TableMixin, ExportMixin, QMainWindow):
         self.nf.setFixedHeight(30)
         self.nf.textChanged.connect(self._filter)
         sf.addWidget(self.nf)
+        self.chk_hide = QCheckBox("Hide incomplete")
+        self.chk_hide.setToolTip("Hide contractors with no phone, email, or website")
+        self.chk_hide.setFixedHeight(30)
+        self.chk_hide.stateChanged.connect(self._filter)
+        sf.addWidget(self.chk_hide)
         root.addLayout(sf)
 
         # Results table
