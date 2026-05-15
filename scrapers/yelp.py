@@ -85,7 +85,12 @@ def _parse_next_data(html: str) -> list[dict]:
                 "biz_url": (
                     biz_url if biz_url.startswith("http") else f"https://www.yelp.com{biz_url}"
                 ),
-                "phone": biz.get("displayPhone") or biz.get("phone", ""),
+                "phone": (
+                    biz.get("primaryPhone")
+                    or biz.get("displayPhone")
+                    or biz.get("phone")
+                    or biz.get("formattedPhone", "")
+                ),
                 "address": biz.get("formattedAddress") or biz.get("address", ""),
             }
         )
