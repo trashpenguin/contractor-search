@@ -107,10 +107,11 @@ def scrape_google_search(trade: str, location: str, limit: int) -> list[Contract
     seen_names: set[str] = set()
     out: list[Contractor] = []
 
+    rate_limited = False
     try:
         with StealthySession(headless=True, network_idle=True, disable_resources=False) as session:
             for term in query_terms:
-                if len(out) >= limit:
+                if len(out) >= limit or rate_limited:
                     break
                 query = quote_plus(f'"{term} {location}"')
                 for page_num in range(_PAGES_PER_QUERY):
@@ -125,6 +126,11 @@ def scrape_google_search(trade: str, location: str, limit: int) -> list[Contract
                             html = html.decode("utf-8", errors="ignore")
                     except Exception as e:
                         logger.info(f"[GSearch] fetch error: {type(e).__name__}: {e}")
+                        break
+
+                    if resp.status == 429 or "google.com/sorry" in (resp.url or ""):
+                        logger.info(f"[GSearch] {trade}: rate-limited by Google — skipping source")
+                        rate_limited = True
                         break
 
                     if resp.status != 200 or len(html) < 50_000:
