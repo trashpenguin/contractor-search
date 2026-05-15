@@ -27,9 +27,19 @@ def scrape_yellowpages(trade: str, location: str, limit: int) -> list[Contractor
             return True
         if isinstance(html, bytes):
             html = html.decode("utf-8", errors="ignore")
-        return (
-            "cf-browser-verification" in html or "Checking your browser" in html or len(html) < 500
+        if len(html) < 500:
+            return True
+        cf_markers = (
+            "cf-browser-verification",
+            "Checking your browser",
+            "Just a moment",
+            "Enable JavaScript and cookies",
+            "DDoS protection by Cloudflare",
+            "cf_chl_opt",
+            "challenge-platform",
+            "Ray ID:",
         )
+        return any(m in html for m in cf_markers)
 
     for attempt in range(3):
         out = []
@@ -45,24 +55,39 @@ def scrape_yellowpages(trade: str, location: str, limit: int) -> list[Contractor
                         f"?search_terms={term}&geo_location_terms={loc}&page={pg}"
                     )
                     try:
-                        resp = session.fetch(url, wait=4000)
+                        resp = session.fetch(url, wait=5000)
                         html = resp.body or ""
                     except Exception as e:
                         logger.info(f"[YP] page {pg} error: {type(e).__name__}")
                         break
-                    if not html or _is_cloudflare(html):
-                        logger.info(f"[YP] Cloudflare on page {pg}, attempt {attempt+1}/3")
-                        time.sleep(3 + attempt * 2)
+                    if (
+                        resp.status in (403, 429, 503, 530)
+                        or not html
+                        or _is_cloudflare(html)
+                        or len(html) < 30_000
+                    ):
+                        logger.info(
+                            f"[YP] Blocked on page {pg} "
+                            f"(status {resp.status}, len={len(html)}), attempt {attempt+1}/3"
+                        )
+                        time.sleep(15 + attempt * 10)
                         break
                     page = Adaptor(html)
                     cards = (
                         page.css("div.srp-listing")
                         or page.css("div.result")
+                        or page.css("div[class*='srp-listing']")
                         or page.css("div[class*='listing']")
+                        or page.css("li[class*='result']")
+                        or page.css("div[class*='business-result']")
                         or page.css("article")
                     )
                     if not cards:
-                        logger.info(f"[YP] No cards on page {pg} (status {resp.status})")
+                        snippet = html[:400].replace("\n", " ").strip()
+                        logger.info(
+                            f"[YP] No cards on page {pg} (status {resp.status}, "
+                            f"html_len={len(html)}, snippet={snippet!r})"
+                        )
                         break
                     found = 0
                     for card in cards:
