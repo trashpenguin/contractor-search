@@ -37,7 +37,6 @@ def scrape_yellowpages(trade: str, location: str, limit: int) -> list[Contractor
             "DDoS protection by Cloudflare",
             "cf_chl_opt",
             "challenge-platform",
-            "Ray ID:",
         )
         return any(m in html for m in cf_markers)
 

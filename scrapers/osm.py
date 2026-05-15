@@ -12,17 +12,28 @@ from models import Contractor
 logger = logging.getLogger("ContractorFinder")
 
 
+def _normalise_location(location: str) -> str:
+    """Fix common typos: 'City. ST' → 'City, ST', 'City  ST' → 'City, ST'."""
+    loc = location.strip()
+    # Period-space before a word → comma-space  (e.g. "Hyde Park. NY")
+    loc = re.sub(r"\.\s+", ", ", loc)
+    # Two or more spaces → comma-space  (e.g. "Hyde Park  NY")
+    loc = re.sub(r"\s{2,}", ", ", loc)
+    return loc
+
+
 def geocode(location: str) -> tuple[float, float]:
+    loc = _normalise_location(location)
     url = (
         f"https://nominatim.openstreetmap.org/search"
-        f"?q={quote_plus(location)}&format=jsonv2&limit=1&countrycodes=us"
+        f"?q={quote_plus(loc)}&format=jsonv2&limit=1&countrycodes=us"
     )
     html = http_get(url, timeout=30)
     if not html:
         raise RuntimeError(f"Cannot geocode: {location}")
     data = json.loads(html)
     if not data:
-        raise RuntimeError(f"Location not found: {location}")
+        raise RuntimeError(f"Location not found: {location!r}")
     return float(data[0]["lat"]), float(data[0]["lon"])
 
 
