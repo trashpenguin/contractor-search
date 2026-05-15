@@ -1,6 +1,9 @@
 from __future__ import annotations
-import asyncio, threading
+
+import asyncio
 import logging
+import threading
+import time as _time
 from urllib.request import Request, urlopen
 
 from compat import HAS_SCRAPLING, Fetcher, StealthyFetcher
@@ -25,17 +28,17 @@ def get_event_loop() -> asyncio.AbstractEventLoop:
 
 def _urllib_get(url: str, timeout: int = 15) -> str:
     try:
-        req = Request(url, headers={
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/124.0"
-        })
+        req = Request(
+            url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/124.0"}
+        )
         with urlopen(req, timeout=timeout) as r:
             return r.read().decode("utf-8", errors="ignore")
     except Exception:
         return ""
 
 
-def http_get(url: str, timeout: int = 8, use_proxy: bool = False) -> str:
-    """Fast HTTP with browser fingerprint + smart proxy routing."""
+def _http_get_once(url: str, timeout: int = 8, use_proxy: bool = False) -> str:
+    """Single HTTP attempt with browser fingerprint + smart proxy routing."""
     proxy = PROXY_MGR.get_for(url) if (use_proxy and PROXY_MGR.ready) else None
     if not HAS_SCRAPLING:
         return _urllib_get(url, timeout)
@@ -43,8 +46,8 @@ def http_get(url: str, timeout: int = 8, use_proxy: bool = False) -> str:
         kwargs: dict = {"timeout": timeout}
         if proxy:
             kwargs["proxy"] = proxy
-        r      = Fetcher.get(url, **kwargs)
-        body   = r.body or ""
+        r = Fetcher.get(url, **kwargs)
+        body = r.body or ""
         result = body.decode("utf-8", errors="ignore") if isinstance(body, bytes) else body
         if proxy:
             PROXY_MGR.report(proxy, len(result) >= 200)
@@ -56,14 +59,30 @@ def http_get(url: str, timeout: int = 8, use_proxy: bool = False) -> str:
         return _urllib_get(url, min(timeout, 8))
 
 
+def http_get(url: str, timeout: int = 8, use_proxy: bool = False, retries: int = 2) -> str:
+    """HTTP GET with exponential backoff on transient failures (1s, 2s delays)."""
+    delay = 1.0
+    for attempt in range(retries + 1):
+        result = _http_get_once(url, timeout, use_proxy)
+        if result:
+            return result
+        if attempt < retries:
+            _time.sleep(delay)
+            delay *= 2
+    return ""
+
+
 def stealth_get(url: str, wait: int = 3000, need_js: bool = False) -> str:
     """Single stealth browser fetch. Always returns str."""
     if not HAS_SCRAPLING:
         return ""
     try:
-        r    = StealthyFetcher.fetch(
-            url, headless=True, network_idle=True,
-            disable_resources=not need_js, wait=wait,
+        r = StealthyFetcher.fetch(
+            url,
+            headless=True,
+            network_idle=True,
+            disable_resources=not need_js,
+            wait=wait,
         )
         body = r.body or ""
         return body.decode("utf-8", errors="ignore") if isinstance(body, bytes) else body
