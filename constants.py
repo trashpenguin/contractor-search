@@ -151,7 +151,7 @@ OVERPASS_EPS = [
 TRADE_KW = {
     "HVAC": {
         "osm": ["heating", "hvac", "furnace", "cooling", "air conditioning"],
-        "yp": "hvac+heating+cooling+contractor",
+        "yp": "hvac+contractor",
         "google": "HVAC contractor",
         "yelp": "hvac",
         "yelp_cflt": "hvac",
@@ -163,7 +163,7 @@ TRADE_KW = {
     },
     "Electrical": {
         "osm": ["electrician", "electrical", "electric"],
-        "yp": "electrician+electrical+contractor",
+        "yp": "electrician",
         "google": "electrical contractor",
         "yelp": "electricians",
         "yelp_cflt": "electricians",
@@ -175,7 +175,7 @@ TRADE_KW = {
     },
     "Excavating": {
         "osm": ["excavating", "earthwork", "grading", "dirt work", "excavation"],
-        "yp": "excavating+grading+earthwork+contractor",
+        "yp": "excavating+contractor",
         "google": "excavating grading contractor",
         "yelp": "excavation services",
         "yelp_cflt": "excavation_services",

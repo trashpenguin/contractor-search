@@ -122,9 +122,11 @@ def scrape_yellowpages(trade: str, location: str, limit: int) -> list[Contractor
                 for pg in range(1, 6):
                     if len(out) >= limit:
                         break
+                    # Page 1: no &page param (matches natural browser URL)
+                    page_param = f"&page={pg}" if pg > 1 else ""
                     url = (
                         f"https://www.yellowpages.com/search"
-                        f"?search_terms={term}&geo_location_terms={loc}&page={pg}"
+                        f"?search_terms={term}&geo_location_terms={loc}{page_param}"
                     )
                     try:
                         resp = session.fetch(url, wait=8000)
