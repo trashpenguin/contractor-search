@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from cache import SEARCH_HISTORY
+from cache import CACHE, SEARCH_HISTORY
 from compat import HAS_AIOHTTP, HAS_DNS, HAS_SCRAPLING
 from constants import TRADE_COLORS
 from gui.export_mixin import ExportMixin
@@ -272,6 +272,13 @@ class MainWindow(SearchMixin, TableMixin, ExportMixin, QMainWindow):
             b.clicked.connect(fn)
             b.setFixedHeight(32)
             er.addWidget(b)
+        self.clear_cache_btn = QPushButton("Clear Cache")
+        self.clear_cache_btn.setFixedHeight(32)
+        self.clear_cache_btn.setToolTip(
+            "Delete all cached Yelp/DDG/contact results so the next search fetches fresh data."
+        )
+        self.clear_cache_btn.clicked.connect(self._clear_cache)
+        er.addWidget(self.clear_cache_btn)
         er.addStretch()
         root.addLayout(er)
 
@@ -289,3 +296,7 @@ class MainWindow(SearchMixin, TableMixin, ExportMixin, QMainWindow):
             c.set(0)
         self.pbar.setValue(0)
         self.statusBar().showMessage("Cleared")
+
+    def _clear_cache(self):
+        CACHE.clear_all()
+        self.statusBar().showMessage("Cache cleared — next search will fetch fresh data")

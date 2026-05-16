@@ -148,6 +148,22 @@ class ContactCache:
         except Exception as e:
             logger.warning(f"[Cache] purge_old failed: {e}")
 
+    def clear_all(self) -> int:
+        """Delete every cached entry. Returns total rows removed."""
+        if not self._conn:
+            return 0
+        try:
+            with self._lock:
+                self._conn.execute("DELETE FROM contacts")
+                self._conn.execute("DELETE FROM ddg_cache")
+                self._conn.commit()
+                return self._conn.execute(
+                    "SELECT changes() + (SELECT COUNT(*) FROM sqlite_master WHERE 1=0)"
+                ).fetchone()[0]
+        except Exception as e:
+            logger.warning(f"[Cache] clear_all failed: {e}")
+            return 0
+
 
 SEARCH_HISTORY = SearchHistory()
 CACHE = ContactCache()
