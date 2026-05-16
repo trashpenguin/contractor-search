@@ -111,6 +111,14 @@ def scrape_yellowpages(trade: str, location: str, limit: int) -> list[Contractor
             with StealthySession(
                 headless=True, network_idle=True, disable_resources=False
             ) as session:
+                # Warm-up: hit YP homepage first so Cloudflare JS challenge
+                # can complete and set cookies before we touch the search page.
+                try:
+                    session.fetch("https://www.yellowpages.com/", wait=5000)
+                    time.sleep(2)
+                except Exception:
+                    pass
+
                 for pg in range(1, 6):
                     if len(out) >= limit:
                         break
