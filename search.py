@@ -98,6 +98,9 @@ def run_search(
                     c.email = decoded
 
         if enrich and collected:
+            # Prioritise phone/email-less records (OSM) so they reach DDG
+            # lookup before the cap is consumed by already-rich records.
+            collected.sort(key=lambda c: c.quality_score)
             BATCH = ENRICH_BATCH_SIZE
             n_total = len(collected)
             scrape_end = int(trade_base + trade_alloc * scrape_frac)

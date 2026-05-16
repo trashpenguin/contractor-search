@@ -10,9 +10,9 @@ LOG_LEVEL: str = os.environ.get("LOG_LEVEL", "INFO").upper()
 # fewer event-loop round-trips. 15 keeps latency predictable.
 ENRICH_BATCH_SIZE: int = int(os.environ.get("ENRICH_BATCH_SIZE", "15"))
 
-# Max DDG website-lookup calls per trade. DDG starts returning 202s at ~10
-# rapid requests; 8 leaves headroom for retries.
-DDG_CAP: int = int(os.environ.get("DDG_CAP", "8"))
+# Max DDG website-lookup calls per trade. Async sleep(0.3) between calls
+# keeps DDG happy; 30 covers a full OSM result set without triggering 202s.
+DDG_CAP: int = int(os.environ.get("DDG_CAP", "30"))
 
 # aiohttp semaphore limits — concurrent requests per target domain.
 # Google blocks hard at >1 concurrent scrape; DDG at >2; others tolerate 6.
