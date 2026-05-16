@@ -8,6 +8,7 @@ from urllib.parse import quote_plus, unquote_plus
 from compat import HAS_SCRAPLING, Adaptor, StealthySession
 from constants import TRADE_KW
 from models import Contractor
+from proxy import PROXY_MGR
 
 logger = logging.getLogger("ContractorFinder")
 
@@ -109,7 +110,12 @@ def scrape_google_search(trade: str, location: str, limit: int) -> list[Contract
 
     rate_limited = False
     try:
-        with StealthySession(headless=True, network_idle=True, disable_resources=False) as session:
+        proxy_url = PROXY_MGR.get() if PROXY_MGR.ready else None
+        sk: dict = {"headless": True, "network_idle": True, "disable_resources": False}
+        if proxy_url:
+            sk["proxy"] = proxy_url
+            logger.info(f"[GSearch] using proxy {proxy_url.split('@')[-1]}")
+        with StealthySession(**sk) as session:
             for term in query_terms:
                 if len(out) >= limit or rate_limited:
                     break
@@ -129,8 +135,15 @@ def scrape_google_search(trade: str, location: str, limit: int) -> list[Contract
                         break
 
                     if resp.status == 429 or "google.com/sorry" in (resp.url or ""):
-                        logger.info(f"[GSearch] {trade}: rate-limited by Google — skipping source")
-                        rate_limited = True
+                        if PROXY_MGR.ready:
+                            # Mark current proxy bad and try a different one next term
+                            if proxy_url:
+                                PROXY_MGR.mark_bad(proxy_url, "429")
+                            proxy_url = PROXY_MGR.get()
+                            logger.info("[GSearch] 429 — rotating proxy, skipping term")
+                        else:
+                            logger.info(f"[GSearch] {trade}: rate-limited — skipping source")
+                            rate_limited = True
                         break
 
                     if resp.status != 200 or len(html) < 50_000:
