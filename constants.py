@@ -154,6 +154,7 @@ TRADE_KW = {
         "yp": "hvac+heating+cooling+contractor",
         "google": "HVAC contractor",
         "yelp": "hvac",
+        "yelp_cflt": "hvac",
         "gsearch": [
             "HVAC contractor",
             "heating cooling contractor",
@@ -165,6 +166,7 @@ TRADE_KW = {
         "yp": "electrician+electrical+contractor",
         "google": "electrical contractor",
         "yelp": "electricians",
+        "yelp_cflt": "electricians",
         "gsearch": [
             "electrician",
             "electrical contractor",
@@ -176,6 +178,7 @@ TRADE_KW = {
         "yp": "excavating+grading+earthwork+contractor",
         "google": "excavating grading contractor",
         "yelp": "excavation services",
+        "yelp_cflt": "excavation_services",
         "gsearch": [
             "excavating contractor",
             "grading excavation contractor",

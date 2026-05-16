@@ -291,17 +291,29 @@ def _extract_biz_page(html: str) -> tuple[str, str]:
 # ── Main scraper ──────────────────────────────────────────────────────────────
 
 
-def _yelp_search_fetcher(term: str, loc: str, limit: int) -> list[dict]:
+_YELP_REFERRER = "https%3A%2F%2Fwww.google.com%2F"
+
+
+def _yelp_url(cflt: str, loc: str, offset: int) -> str:
+    """Build a Yelp search URL that looks like organic Google referral traffic."""
+    return (
+        f"https://www.yelp.com/search"
+        f"?cflt={cflt}&find_loc={loc}&dd_referrer={_YELP_REFERRER}&start={offset}"
+    )
+
+
+def _yelp_search_fetcher(cflt: str, term: str, loc: str, limit: int) -> list[dict]:
     """
     Phase 1: Try Yelp search via curl_cffi (Fetcher).
     curl_cffi has a different TLS/JA3 fingerprint than Playwright and often
     bypasses Yelp's bot detection where a headless browser gets 403'd.
+    Uses cflt= category filter + dd_referrer=google to look like organic traffic.
     """
     results: list[dict] = []
     for offset in range(0, min(limit, 60), 10):
         if len(results) >= limit:
             break
-        url = f"https://www.yelp.com/search?find_desc={term}&find_loc={loc}&start={offset}"
+        url = _yelp_url(cflt, loc, offset)
         html = http_get(url, timeout=12)
         if not html or len(html) < 500:
             logger.debug(f"[Yelp/curl] empty at offset {offset}")
@@ -318,10 +330,11 @@ def _yelp_search_fetcher(term: str, loc: str, limit: int) -> list[dict]:
     return results
 
 
-def _yelp_search_session(term: str, loc: str, limit: int) -> list[dict]:
+def _yelp_search_session(cflt: str, term: str, loc: str, limit: int) -> list[dict]:
     """
     Phase 2: Try Yelp search via StealthySession (full Patchright browser).
     Used only when curl_cffi Phase 1 returned nothing.
+    Uses cflt= category filter + dd_referrer=google to look like organic traffic.
     """
     if not HAS_SCRAPLING:
         return []
@@ -336,10 +349,7 @@ def _yelp_search_session(term: str, loc: str, limit: int) -> list[dict]:
             for offset in range(0, min(limit, 60), 10):
                 if len(results) >= limit:
                     break
-                url = (
-                    f"https://www.yelp.com/search"
-                    f"?find_desc={term}&find_loc={loc}&start={offset}"
-                )
+                url = _yelp_url(cflt, loc, offset)
                 try:
                     resp = session.fetch(url, wait=6000)
                     status = getattr(resp, "status", 200) or 200
@@ -468,6 +478,7 @@ def scrape_yelp(trade: str, location: str, limit: int) -> list[Contractor]:
     blocked, and http_get avoids reusing a session that Yelp already flagged.
     """
     keyword = TRADE_KW[trade]["yelp"]
+    cflt = quote_plus(TRADE_KW[trade].get("yelp_cflt", keyword))
     city_raw = location.split(",")[0].strip()
     # Extract 2-letter state code from the location string (e.g. "Warren, MI 48091" → "MI")
     # Old code used "mi" in location which matched "Miami, FL" and returned wrong state.
@@ -484,12 +495,12 @@ def scrape_yelp(trade: str, location: str, limit: int) -> list[Contractor]:
     loc = quote_plus(f"{city_raw}, {state}")
 
     # ── Phase 1: curl_cffi ────────────────────────────────────────────────────
-    raw_businesses = _yelp_search_fetcher(term, loc, limit)
+    raw_businesses = _yelp_search_fetcher(cflt, term, loc, limit)
 
     # ── Phase 2: StealthySession ──────────────────────────────────────────────
     if not raw_businesses:
         logger.info("[Yelp] curl_cffi got nothing — trying StealthySession")
-        raw_businesses = _yelp_search_session(term, loc, limit)
+        raw_businesses = _yelp_search_session(cflt, term, loc, limit)
 
     # ── Phase 3: DDG fallback ─────────────────────────────────────────────────
     if not raw_businesses:
