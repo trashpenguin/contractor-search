@@ -134,9 +134,10 @@ class SearchMixin:
         self.xbtn.setEnabled(False)
         if ok:
             counts = {t: sum(1 for r in self.rows if r.trade == t) for t in TRADE_COLORS}
+            active = {t: n for t, n in counts.items() if n > 0}
             self.statusBar().showMessage(
                 f"Done — {len(self.rows)} contractors  |  "
-                + "  ".join(f"{t}:{counts[t]}" for t in TRADE_COLORS)
+                + "  ".join(f"{t}:{n}" for t, n in active.items())
             )
         else:
             QMessageBox.critical(self, "Search Failed", err)

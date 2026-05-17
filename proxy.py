@@ -102,10 +102,20 @@ class ProxyManager:
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=30) as ex:
             futs = [ex.submit(_test, p) for p in raw[:200]]
+            first_ready = False
             for fut in concurrent.futures.as_completed(futs):
                 entry = fut.result()
                 if entry and len(scored) < 25:
                     scored.append(entry)
+                    if not first_ready:
+                        # Make the pool usable immediately — don't wait for all 200 tests
+                        with self._lock:
+                            self._pool = list(scored)
+                            self._loaded = True
+                        first_ready = True
+                        logger.info(
+                            f"[Proxy] First proxy ready: {entry.url[7:35]} ({entry.latency:.2f}s)"
+                        )
 
         scored.sort(key=lambda e: e.latency)
         with self._lock:
@@ -187,7 +197,16 @@ class ProxyManager:
                     break
 
     def mark_bad(self, proxy: str, error: str = ""):
-        self.report(proxy, False, error)
+        """Mark proxy bad. 429/dead errors immediately circuit-break the proxy."""
+        if error in ("429", "dead") or "429" in error:
+            with self._lock:
+                for entry in self._pool:
+                    if entry.url == proxy:
+                        entry.score = -99
+                        logger.info(f"[Proxy] Circuit broken ({error}): {proxy[7:35]}")
+                        break
+        else:
+            self.report(proxy, False, error)
 
     @property
     def ready(self) -> bool:

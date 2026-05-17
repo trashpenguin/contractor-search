@@ -93,12 +93,30 @@ def _parse_cards(html: str) -> list[Contractor]:
     return results
 
 
+_PROXY_CONN_ERRORS = (
+    "ERR_PROXY_CONNECTION_FAILED",
+    "ERR_TUNNEL_CONNECTION_FAILED",
+    "ECONNREFUSED",
+    "ETIMEDOUT",
+    "ERR_CONNECTION_TIMED_OUT",
+    "ProxyError",
+    "net::ERR_PROXY",
+    "net::ERR_TUNNEL",
+)
+
+
+def _is_proxy_error(exc: Exception) -> bool:
+    s = str(exc)
+    return any(e in s for e in _PROXY_CONN_ERRORS)
+
+
 def scrape_google_search(trade: str, location: str, limit: int) -> list[Contractor]:
     """Multi-query + paginated Google Search local results (udm=1).
 
     Runs each query term in TRADE_KW[trade]['gsearch'], fetching up to
     _PAGES_PER_QUERY pages each. Deduplicates by phone and name within
-    the scraper before returning.
+    the scraper before returning. Restarts session with a new proxy on
+    connection failures (ERR_PROXY_CONNECTION_FAILED etc.).
     """
     if not HAS_SCRAPLING:
         return []
@@ -108,86 +126,110 @@ def scrape_google_search(trade: str, location: str, limit: int) -> list[Contract
     seen_names: set[str] = set()
     out: list[Contractor] = []
 
+    terms_todo = list(query_terms)
     rate_limited = False
-    try:
+
+    for _session_attempt in range(4):  # up to 4 proxy rotations
+        if not terms_todo or len(out) >= limit or rate_limited:
+            break
+
         proxy_url = PROXY_MGR.get() if PROXY_MGR.ready else None
         sk: dict = {"headless": True, "network_idle": True, "disable_resources": False}
         if proxy_url:
             sk["proxy"] = proxy_url
             logger.info(f"[GSearch] using proxy {proxy_url.split('@')[-1]}")
-        with StealthySession(**sk) as session:
-            for term in query_terms:
-                if len(out) >= limit or rate_limited:
-                    break
-                query = quote_plus(f'"{term} {location}"')
-                for page_num in range(_PAGES_PER_QUERY):
-                    if len(out) >= limit:
-                        break
-                    start = page_num * 20
-                    url = f"https://www.google.com/search?q={query}&udm=1&start={start}"
-                    try:
-                        resp = session.fetch(url, wait=5000)
-                        html = resp.body or ""
-                        if isinstance(html, bytes):
-                            html = html.decode("utf-8", errors="ignore")
-                    except Exception as e:
-                        logger.info(f"[GSearch] fetch error: {type(e).__name__}: {e}")
-                        break
 
-                    if resp.status == 429 or "google.com/sorry" in (resp.url or ""):
-                        if PROXY_MGR.ready:
-                            # Mark current proxy bad and try a different one next term
-                            if proxy_url:
-                                PROXY_MGR.mark_bad(proxy_url, "429")
-                            proxy_url = PROXY_MGR.get()
-                            logger.info("[GSearch] 429 — rotating proxy, skipping term")
-                        else:
-                            logger.info(f"[GSearch] {trade}: rate-limited — skipping source")
-                            rate_limited = True
-                        break
+        need_new_session = False
+        try:
+            with StealthySession(**sk) as session:
+                while terms_todo and len(out) < limit and not rate_limited and not need_new_session:
+                    term = terms_todo[0]
+                    query = quote_plus(f'"{term} {location}"')
+                    term_done = True
 
-                    if resp.status != 200 or len(html) < 50_000:
-                        logger.info(
-                            f"[GSearch] {trade} term={term!r} p{page_num+1}: "
-                            f"status={resp.status} len={len(html)}"
-                        )
-                        break
-
-                    cards = _parse_cards(html)
-                    logger.info(
-                        f"[GSearch] {trade} term={term!r} p{page_num+1}: {len(cards)} cards"
-                    )
-                    if not cards:
-                        break  # no more results for this term
-
-                    new = 0
-                    for c in cards:
+                    for page_num in range(_PAGES_PER_QUERY):
                         if len(out) >= limit:
                             break
-                        c.trade = trade
-                        # dedup within this scraper by phone or normalised name
-                        norm_name = re.sub(r"[^a-z0-9]", "", c.name.lower())
-                        phone_key = re.sub(r"[^0-9]", "", c.phone)[-10:] if c.phone else ""
-                        if phone_key and phone_key in seen_phones:
-                            continue
-                        if norm_name and norm_name in seen_names:
-                            continue
-                        if phone_key:
-                            seen_phones.add(phone_key)
-                        if norm_name:
-                            seen_names.add(norm_name)
-                        out.append(c)
-                        new += 1
+                        start = page_num * 20
+                        url = f"https://www.google.com/search?q={query}&udm=1&start={start}"
+                        try:
+                            resp = session.fetch(url, wait=5000)
+                            html = resp.body or ""
+                            if isinstance(html, bytes):
+                                html = html.decode("utf-8", errors="ignore")
+                        except Exception as e:
+                            if proxy_url and PROXY_MGR.ready and _is_proxy_error(e):
+                                PROXY_MGR.mark_bad(proxy_url, "dead")
+                                logger.info(
+                                    f"[GSearch] proxy dead ({proxy_url.split('@')[-1]}) — rotating"
+                                )
+                                need_new_session = True
+                                term_done = False
+                            else:
+                                logger.info(f"[GSearch] fetch error: {type(e).__name__}: {e}")
+                            break
 
-                    logger.info(f"[GSearch] {trade}: +{new} new (total {len(out)})")
-                    if page_num < _PAGES_PER_QUERY - 1:
-                        time.sleep(1.5)  # polite gap between pages
+                        if resp.status == 429 or "google.com/sorry" in (resp.url or ""):
+                            if PROXY_MGR.ready:
+                                if proxy_url:
+                                    PROXY_MGR.mark_bad(proxy_url, "429")
+                                logger.info("[GSearch] 429 — rotating proxy, skipping term")
+                                need_new_session = True
+                                term_done = False
+                            else:
+                                logger.info(f"[GSearch] {trade}: rate-limited — skipping source")
+                                rate_limited = True
+                            break
 
-                if len(out) < limit:
-                    time.sleep(1.5)  # polite gap between query terms
+                        if resp.status != 200 or len(html) < 50_000:
+                            logger.info(
+                                f"[GSearch] {trade} term={term!r} p{page_num+1}: "
+                                f"status={resp.status} len={len(html)}"
+                            )
+                            break
 
-    except Exception as e:
-        logger.info(f"[GSearch] {trade}: {type(e).__name__}: {e}")
+                        cards = _parse_cards(html)
+                        logger.info(
+                            f"[GSearch] {trade} term={term!r} p{page_num+1}: {len(cards)} cards"
+                        )
+                        if not cards:
+                            break
+
+                        new = 0
+                        for c in cards:
+                            if len(out) >= limit:
+                                break
+                            c.trade = trade
+                            norm_name = re.sub(r"[^a-z0-9]", "", c.name.lower())
+                            phone_key = re.sub(r"[^0-9]", "", c.phone)[-10:] if c.phone else ""
+                            if phone_key and phone_key in seen_phones:
+                                continue
+                            if norm_name and norm_name in seen_names:
+                                continue
+                            if phone_key:
+                                seen_phones.add(phone_key)
+                            if norm_name:
+                                seen_names.add(norm_name)
+                            out.append(c)
+                            new += 1
+
+                        logger.info(f"[GSearch] {trade}: +{new} new (total {len(out)})")
+                        if page_num < _PAGES_PER_QUERY - 1:
+                            time.sleep(1.5)
+
+                    if term_done:
+                        terms_todo.pop(0)
+                        if terms_todo and not need_new_session:
+                            time.sleep(1.5)
+
+        except Exception as e:
+            logger.info(f"[GSearch] {trade}: session error: {type(e).__name__}: {e}")
+            if proxy_url and PROXY_MGR.ready and _is_proxy_error(e):
+                PROXY_MGR.mark_bad(proxy_url, "dead")
+            need_new_session = True
+
+        if not need_new_session or not PROXY_MGR.ready:
+            break
 
     logger.info(f"[GSearch] {trade}: {len(out)} total")
     return out[:limit]

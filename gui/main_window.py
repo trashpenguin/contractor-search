@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+import settings as _settings
 from cache import CACHE, SEARCH_HISTORY
 from compat import HAS_AIOHTTP, HAS_DNS, HAS_SCRAPLING
 from constants import TRADE_COLORS
@@ -25,7 +26,7 @@ from gui.export_mixin import ExportMixin
 from gui.search_mixin import SearchMixin
 from gui.style import COLS
 from gui.table_mixin import TableMixin
-from gui.widgets import StatCard
+from gui.widgets import StatCard, TradeSelector
 from models import Contractor
 
 _SRC_IDLE_STYLE = (
@@ -124,17 +125,18 @@ class MainWindow(SearchMixin, TableMixin, ExportMixin, QMainWindow):
         r1.addLayout(pc, 1)
         sl.addLayout(r1)
 
+        # Trades dropdown selector
+        rt = QHBoxLayout()
+        rt.setSpacing(6)
+        rt.addWidget(self._lbl("Trades:"))
+        self.trade_selector = TradeSelector(TRADE_COLORS)
+        self.chk_t = self.trade_selector._checkboxes
+        rt.addWidget(self.trade_selector)
+        rt.addStretch()
+        sl.addLayout(rt)
+
         r2 = QHBoxLayout()
         r2.setSpacing(8)
-        r2.addWidget(self._lbl("Trades:"))
-        self.chk_t: dict[str, QCheckBox] = {}
-        for t, col in TRADE_COLORS.items():
-            cb = QCheckBox(t)
-            cb.setChecked(True)
-            cb.setStyleSheet(f"color:{col};font-weight:700;font-size:13px;")
-            self.chk_t[t] = cb
-            r2.addWidget(cb)
-        r2.addSpacing(16)
         r2.addWidget(self._lbl("Sources:"))
         self.chk_s: dict[str, QCheckBox] = {}
         src_colors = {
@@ -143,10 +145,11 @@ class MainWindow(SearchMixin, TableMixin, ExportMixin, QMainWindow):
             "Yelp": "#ef4444",
             "Google": "#34d399",
             "Google Search": "#60a5fa",
+            "Google Places": "#4ade80",
         }
         for s, col in src_colors.items():
             cb = QCheckBox(s)
-            cb.setChecked(True)
+            cb.setChecked(s != "Google Places")  # off by default until API key entered
             cb.setStyleSheet(f"color:{col};font-size:12px;font-weight:600;")
             self.chk_s[s] = cb
             r2.addWidget(cb)
@@ -165,6 +168,41 @@ class MainWindow(SearchMixin, TableMixin, ExportMixin, QMainWindow):
         r2.addWidget(self.chk_proxy)
         r2.addStretch()
         sl.addLayout(r2)
+
+        # Google Places API key row
+        r2b = QHBoxLayout()
+        r2b.setSpacing(6)
+        gp_lbl = self._lbl("Google Places API Key:")
+        gp_lbl.setToolTip(
+            "Get a free key at console.cloud.google.com\n"
+            "Enable 'Places API (New)' in your project.\n"
+            "Free tier: 5,000 requests/month."
+        )
+        r2b.addWidget(gp_lbl)
+        self.gp_key = QLineEdit()
+        self.gp_key.setPlaceholderText("AIza... (optional — enables Google Places source)")
+        self.gp_key.setFixedHeight(28)
+        self.gp_key.setEchoMode(QLineEdit.Password)
+        self.gp_key.setFixedWidth(340)
+        saved_key = _settings.get("google_places_api_key", "")
+        if saved_key:
+            self.gp_key.setText(saved_key)
+            self.chk_s["Google Places"].setChecked(True)
+        self.gp_key.textChanged.connect(self._on_gp_key_changed)
+        r2b.addWidget(self.gp_key)
+        self.gp_show_btn = QPushButton("Show")
+        self.gp_show_btn.setFixedHeight(28)
+        self.gp_show_btn.setFixedWidth(46)
+        self.gp_show_btn.setCheckable(True)
+        self.gp_show_btn.toggled.connect(
+            lambda on: (
+                self.gp_key.setEchoMode(QLineEdit.Normal if on else QLineEdit.Password),
+                self.gp_show_btn.setText("Hide" if on else "Show"),
+            )
+        )
+        r2b.addWidget(self.gp_show_btn)
+        r2b.addStretch()
+        sl.addLayout(r2b)
 
         r3 = QHBoxLayout()
         r3.setSpacing(8)
@@ -200,7 +238,7 @@ class MainWindow(SearchMixin, TableMixin, ExportMixin, QMainWindow):
         sr = QHBoxLayout()
         sr.setSpacing(6)
         self._src_labels: dict[str, QLabel] = {}
-        for src in ["OSM", "YellowPages", "Yelp", "Google", "Google Search"]:
+        for src in ["OSM", "YellowPages", "Yelp", "Google", "Google Search", "Google Places"]:
             lbl = QLabel(f"{src}: —")
             lbl.setStyleSheet(_SRC_IDLE_STYLE)
             self._src_labels[src] = lbl
@@ -213,40 +251,60 @@ class MainWindow(SearchMixin, TableMixin, ExportMixin, QMainWindow):
 
         root.addWidget(sg)
 
-        # Stats + filter row
-        sf = QHBoxLayout()
-        sf.setSpacing(8)
+        # Stats row
+        stats_row = QHBoxLayout()
+        stats_row.setSpacing(4)
         self.stats: dict[str, StatCard] = {}
         for t, col in {**TRADE_COLORS, "Total": "#6366f1"}.items():
             card = StatCard(t, col)
             self.stats[t] = card
-            sf.addWidget(card)
-        sf.addStretch()
-        sf.addWidget(self._lbl("Filter:"))
+            stats_row.addWidget(card)
+        stats_row.addStretch()
+        root.addLayout(stats_row)
+
+        # Filter row
+        filter_wrap = QWidget()
+        filter_wrap.setStyleSheet("background:#0f1117;border:1px solid #1e293b;border-radius:6px;")
+        filter_row = QHBoxLayout(filter_wrap)
+        filter_row.setContentsMargins(10, 4, 10, 4)
+        filter_row.setSpacing(8)
+        filter_row.addWidget(self._lbl("Trade:"))
         self.tf = QComboBox()
-        self.tf.addItems(["All", "HVAC", "Electrical", "Excavating"])
-        self.tf.setFixedWidth(120)
-        self.tf.setFixedHeight(30)
+        self.tf.addItems(["All"] + list(TRADE_COLORS.keys()))
+        self.tf.setFixedWidth(175)
+        self.tf.setFixedHeight(28)
         self.tf.currentTextChanged.connect(self._filter)
-        sf.addWidget(self.tf)
+        filter_row.addWidget(self.tf)
+        filter_row.addWidget(self._lbl("Source:"))
         self.sf2 = QComboBox()
-        self.sf2.addItems(["All Sources", "OSM", "YellowPages", "Yelp", "Google", "Google Search"])
+        self.sf2.addItems(
+            [
+                "All Sources",
+                "OSM",
+                "YellowPages",
+                "Yelp",
+                "Google",
+                "Google Search",
+                "Google Places",
+            ]
+        )
         self.sf2.setFixedWidth(130)
-        self.sf2.setFixedHeight(30)
+        self.sf2.setFixedHeight(28)
         self.sf2.currentTextChanged.connect(self._filter)
-        sf.addWidget(self.sf2)
+        filter_row.addWidget(self.sf2)
         self.nf = QLineEdit()
         self.nf.setPlaceholderText("Search by name...")
-        self.nf.setFixedWidth(160)
-        self.nf.setFixedHeight(30)
+        self.nf.setFixedWidth(180)
+        self.nf.setFixedHeight(28)
         self.nf.textChanged.connect(self._filter)
-        sf.addWidget(self.nf)
+        filter_row.addWidget(self.nf)
         self.chk_hide = QCheckBox("Hide incomplete")
         self.chk_hide.setToolTip("Hide contractors with no phone, email, or website")
-        self.chk_hide.setFixedHeight(30)
+        self.chk_hide.setFixedHeight(28)
         self.chk_hide.stateChanged.connect(self._filter)
-        sf.addWidget(self.chk_hide)
-        root.addLayout(sf)
+        filter_row.addWidget(self.chk_hide)
+        filter_row.addStretch()
+        root.addWidget(filter_wrap)
 
         # Results table
         self.table = QTableWidget(0, len(COLS))
@@ -296,6 +354,13 @@ class MainWindow(SearchMixin, TableMixin, ExportMixin, QMainWindow):
             c.set(0)
         self.pbar.setValue(0)
         self.statusBar().showMessage("Cleared")
+
+    def _on_gp_key_changed(self, text: str):
+        key = text.strip()
+        _settings.set("google_places_api_key", key)
+        # Auto-enable the Google Places checkbox when a key is entered
+        if "Google Places" in self.chk_s:
+            self.chk_s["Google Places"].setChecked(bool(key))
 
     def _clear_cache(self):
         CACHE.clear_all()

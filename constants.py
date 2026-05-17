@@ -185,14 +185,123 @@ TRADE_KW = {
             "site work dirt contractor",
         ],
     },
+    "Construction Staking": {
+        "osm": ["survey", "land survey", "surveyor", "staking"],
+        "yp": "construction+staking",
+        "google": "construction staking contractor",
+        "yelp": "surveyors",
+        "yelp_cflt": "surveyors",
+        "gsearch": [
+            "construction staking contractor",
+            "land surveying contractor",
+            "survey staking service",
+        ],
+    },
+    "Fencing": {
+        "osm": ["fence", "fencing"],
+        "yp": "fencing+contractor",
+        "google": "fencing contractor",
+        "yelp": "fences-gates",
+        "yelp_cflt": "fences-gates",
+        "gsearch": [
+            "fencing contractor",
+            "fence installation company",
+            "fence contractor",
+        ],
+    },
+    "Dirtwork": {
+        "osm": ["earthwork", "dirt work", "site work"],
+        "yp": "dirt+work+contractor",
+        "google": "dirt work contractor",
+        "yelp": "excavation-services",
+        "yelp_cflt": "excavation_services",
+        "gsearch": [
+            "dirt work contractor",
+            "earthwork contractor",
+            "site work contractor",
+        ],
+    },
+    "Grading": {
+        "osm": ["grading", "land grading", "site grading"],
+        "yp": "grading+contractor",
+        "google": "grading contractor",
+        "yelp": "excavation-services",
+        "yelp_cflt": "excavation_services",
+        "gsearch": [
+            "grading contractor",
+            "land grading contractor",
+            "finish grading contractor",
+        ],
+    },
+    "Geotechnical Contractor": {
+        "osm": ["geotechnical", "soil testing", "geotechnical engineer"],
+        "yp": "geotechnical+engineer",
+        "google": "geotechnical contractor",
+        "yelp": "geotechnical_engineer",
+        "yelp_cflt": "geotechnical_engineer",
+        "gsearch": [
+            "geotechnical contractor",
+            "soil testing contractor",
+            "geotechnical engineering firm",
+        ],
+    },
+    "Pre Cast Company": {
+        "osm": ["precast", "precast concrete", "concrete plant"],
+        "yp": "precast+concrete",
+        "google": "precast concrete company",
+        "yelp": "contractors",
+        "yelp_cflt": "contractors",
+        "gsearch": [
+            "precast concrete company",
+            "precast contractor",
+            "precast concrete manufacturer",
+        ],
+    },
+    "Fire Hydrant Contractor": {
+        "osm": ["fire hydrant", "fire protection", "fire service"],
+        "yp": "fire+hydrant+contractor",
+        "google": "fire hydrant contractor",
+        "yelp": "fire-protection-services",
+        "yelp_cflt": "fire-protection-services",
+        "gsearch": [
+            "fire hydrant contractor",
+            "fire hydrant installation contractor",
+            "water main fire hydrant contractor",
+        ],
+    },
+    "Fire Suppression Company": {
+        "osm": ["fire suppression", "fire sprinkler", "fire protection"],
+        "yp": "fire+suppression+contractor",
+        "google": "fire suppression company",
+        "yelp": "fire-protection-services",
+        "yelp_cflt": "fire-protection-services",
+        "gsearch": [
+            "fire suppression company",
+            "fire sprinkler contractor",
+            "fire protection contractor",
+        ],
+    },
 }
 
-TRADE_COLORS = {"HVAC": "#10b981", "Electrical": "#3b82f6", "Excavating": "#f59e0b"}
+TRADE_COLORS = {
+    "HVAC": "#10b981",
+    "Electrical": "#3b82f6",
+    "Excavating": "#f59e0b",
+    "Construction Staking": "#8b5cf6",
+    "Fencing": "#ec4899",
+    "Dirtwork": "#a78bfa",
+    "Grading": "#d97706",
+    "Geotechnical Contractor": "#06b6d4",
+    "Pre Cast Company": "#6366f1",
+    "Fire Hydrant Contractor": "#ef4444",
+    "Fire Suppression Company": "#f97316",
+}
 SOURCE_COLORS = {
     "OSM": "#8b5cf6",
     "YellowPages": "#f97316",
     "Yelp": "#06b6d4",
     "Google": "#34d399",
+    "Google Places": "#4ade80",
     "Direct": "#94a3b8",
 }
 

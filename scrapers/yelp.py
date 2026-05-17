@@ -8,7 +8,7 @@ from dataclasses import asdict
 from urllib.parse import parse_qs, quote_plus, unquote, urlparse
 
 from cache import CACHE
-from compat import HAS_SCRAPLING, Adaptor, StealthySession
+from compat import HAS_SCRAPLING, Adaptor, Fetcher, StealthySession
 from constants import PHONE_RE, SCRAPE_SKIP, TRADE_KW
 from extractor import _parse_phone
 from http_client import http_get
@@ -302,32 +302,81 @@ def _yelp_url(cflt: str, loc: str, offset: int) -> str:
     )
 
 
+# curl_cffi browser impersonation targets to try for Yelp, newest first.
+# Each has a distinct JA3/JA4 TLS fingerprint — rotating them helps when
+# Yelp's bot detection has flagged the previous fingerprint.
+_YELP_IMPERSONATIONS = ["chrome131", "chrome124", "chrome110", "firefox133"]
+
+
 def _yelp_search_fetcher(cflt: str, term: str, loc: str, limit: int) -> list[dict]:
     """
-    Phase 1: Try Yelp search via curl_cffi (Fetcher).
-    curl_cffi has a different TLS/JA3 fingerprint than Playwright and often
-    bypasses Yelp's bot detection where a headless browser gets 403'd.
+    Phase 1: Try Yelp search via curl_cffi (Fetcher) with browser TLS impersonation.
+    Rotates through Chrome/Firefox JA3 fingerprints to bypass Yelp bot detection.
     Uses cflt= category filter + dd_referrer=google to look like organic traffic.
     """
-    results: list[dict] = []
-    for offset in range(0, min(limit, 60), 10):
-        if len(results) >= limit:
-            break
-        url = _yelp_url(cflt, loc, offset)
-        html = http_get(url, timeout=12)
+    if not HAS_SCRAPLING:
+        html = http_get(_yelp_url(cflt, loc, 0), timeout=12)
         if not html or len(html) < 500:
-            logger.debug(f"[Yelp/curl] empty at offset {offset}")
-            break
-        batch = _parse_next_data(html)
-        if not batch:
-            logger.debug(f"[Yelp/curl] no __NEXT_DATA__ at offset {offset}")
-            break
-        results.extend(batch)
-        logger.info(f"[Yelp/curl] offset {offset}: {len(batch)} found (total {len(results)})")
-        if len(batch) < 5:
-            break
-        time.sleep(1.5)
-    return results
+            return []
+        return _parse_next_data(html)
+
+    for impersonate in _YELP_IMPERSONATIONS:
+        results: list[dict] = []
+        blocked = False
+        for offset in range(0, min(limit, 60), 10):
+            if len(results) >= limit:
+                break
+            url = _yelp_url(cflt, loc, offset)
+            try:
+                r = Fetcher.get(url, timeout=12, impersonate=impersonate)
+                status = getattr(r, "status", 0) or 0
+                body = r.body or b""
+                html = body.decode("utf-8", errors="ignore") if isinstance(body, bytes) else body
+            except Exception as e:
+                logger.info(
+                    f"[Yelp/curl] {impersonate} fetch error at offset {offset}: {type(e).__name__}"
+                )
+                blocked = True
+                break
+            if status in (403, 429) or not html or len(html) < 500:
+                logger.info(
+                    f"[Yelp/curl] {impersonate} HTTP {status} "
+                    f"at offset {offset} — trying next fingerprint"
+                )
+                blocked = True
+                break
+            batch = _parse_next_data(html)
+            if not batch:
+                logger.info(
+                    f"[Yelp/curl] {impersonate} no __NEXT_DATA__ "
+                    f"at offset {offset} (len={len(html)})"
+                )
+                break
+            results.extend(batch)
+            logger.info(
+                f"[Yelp/curl] {impersonate} offset {offset}: "
+                f"{len(batch)} found (total {len(results)})"
+            )
+            if len(batch) < 5:
+                break
+            time.sleep(1.5)
+        if results:
+            return results
+        if not blocked:
+            break  # parsed OK but got 0 businesses — no point rotating fingerprint
+    return []
+
+
+_YELP_PROXY_ERRORS = (
+    "ERR_PROXY_CONNECTION_FAILED",
+    "ERR_TUNNEL_CONNECTION_FAILED",
+    "ECONNREFUSED",
+    "ETIMEDOUT",
+    "ERR_CONNECTION_TIMED_OUT",
+    "ProxyError",
+    "net::ERR_PROXY",
+    "net::ERR_TUNNEL",
+)
 
 
 def _yelp_search_session(cflt: str, term: str, loc: str, limit: int) -> list[dict]:
@@ -335,46 +384,71 @@ def _yelp_search_session(cflt: str, term: str, loc: str, limit: int) -> list[dic
     Phase 2: Try Yelp search via StealthySession (full Patchright browser).
     Used only when curl_cffi Phase 1 returned nothing.
     Uses cflt= category filter + dd_referrer=google to look like organic traffic.
+    Retries with a new proxy if the current one is dead.
     """
     if not HAS_SCRAPLING:
         return []
     results: list[dict] = []
-    try:
+
+    for _attempt in range(3):  # up to 3 proxy attempts
         proxy_url = PROXY_MGR.get() if PROXY_MGR.ready else None
         sk: dict = {"headless": True, "network_idle": True, "disable_resources": False}
         if proxy_url:
             sk["proxy"] = proxy_url
 
-        with StealthySession(**sk) as session:
-            for offset in range(0, min(limit, 60), 10):
-                if len(results) >= limit:
-                    break
-                url = _yelp_url(cflt, loc, offset)
-                try:
-                    resp = session.fetch(url, wait=6000)
-                    status = getattr(resp, "status", 200) or 200
-                    html = resp.body or b""
-                    if isinstance(html, bytes):
-                        html = html.decode("utf-8", errors="ignore")
-                except Exception as e:
-                    logger.warning(f"[Yelp/session] offset {offset}: {type(e).__name__}")
-                    break
-                if status in (403, 429) or not html or len(html) < 500:
-                    logger.warning(f"[Yelp/session] HTTP {status} / empty at offset {offset}")
-                    break
-                batch = _parse_next_data(html) or _parse_html_cards(html, limit)
-                if not batch:
-                    logger.info(f"[Yelp/session] no results at offset {offset}")
-                    break
-                results.extend(batch)
-                logger.info(
-                    f"[Yelp/session] offset {offset}: {len(batch)} found " f"(total {len(results)})"
-                )
-                if len(batch) < 5:
-                    break
-                time.sleep(2.0)
-    except Exception as e:
-        logger.error(f"[Yelp/session] error: {type(e).__name__}: {e}")
+        proxy_dead = False
+        try:
+            with StealthySession(**sk) as session:
+                for offset in range(0, min(limit, 60), 10):
+                    if len(results) >= limit:
+                        break
+                    url = _yelp_url(cflt, loc, offset)
+                    try:
+                        resp = session.fetch(url, wait=6000)
+                        status = getattr(resp, "status", 200) or 200
+                        html = resp.body or b""
+                        if isinstance(html, bytes):
+                            html = html.decode("utf-8", errors="ignore")
+                    except Exception as e:
+                        err_str = str(e)
+                        if (
+                            proxy_url
+                            and PROXY_MGR.ready
+                            and any(p in err_str for p in _YELP_PROXY_ERRORS)
+                        ):
+                            PROXY_MGR.mark_bad(proxy_url, "dead")
+                            logger.info(
+                                f"[Yelp/session] proxy dead ({proxy_url.split('@')[-1]}) — rotating"
+                            )
+                            proxy_dead = True
+                        else:
+                            logger.info(f"[Yelp/session] offset {offset}: {type(e).__name__}")
+                        break
+                    if status in (403, 429) or not html or len(html) < 500:
+                        logger.info(f"[Yelp/session] HTTP {status} / empty at offset {offset}")
+                        break
+                    batch = _parse_next_data(html) or _parse_html_cards(html, limit)
+                    if not batch:
+                        logger.info(f"[Yelp/session] no results at offset {offset}")
+                        break
+                    results.extend(batch)
+                    logger.info(
+                        f"[Yelp/session] offset {offset}: {len(batch)} found"
+                        f" (total {len(results)})"
+                    )
+                    if len(batch) < 5:
+                        break
+                    time.sleep(2.0)
+        except Exception as e:
+            err_str = str(e)
+            if proxy_url and PROXY_MGR.ready and any(p in err_str for p in _YELP_PROXY_ERRORS):
+                PROXY_MGR.mark_bad(proxy_url, "dead")
+                proxy_dead = True
+            logger.info(f"[Yelp/session] error: {type(e).__name__}: {e}")
+
+        if not proxy_dead or not PROXY_MGR.ready:
+            break  # success or non-proxy error, stop retrying
+
     return results
 
 

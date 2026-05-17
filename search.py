@@ -13,6 +13,7 @@ from http_client import get_event_loop
 from models import Contractor
 from scrapers.ddg import ddg_search
 from scrapers.google import scrape_google
+from scrapers.google_places import scrape_google_places
 from scrapers.google_search import scrape_google_search
 from scrapers.osm import scrape_osm
 from scrapers.yellowpages import scrape_yellowpages
@@ -61,10 +62,14 @@ def run_search(
         trade_base = trade_idx * trade_alloc
         collected: list[Contractor] = []
 
-        # Run Google Search before Google Maps so its phone-rich records win dedup ties
+        # Google Places first (API, most reliable), then Google Search, then Google Maps
         ordered_sources = sorted(
             sources,
-            key=lambda s: (0 if s == "Google Search" else 1 if s == "Google" else 2),
+            key=lambda s: (
+                0
+                if s == "Google Places"
+                else 1 if s == "Google Search" else 2 if s == "Google" else 3
+            ),
         )
         for src_idx, src in enumerate(ordered_sources):
             if stop_ev.is_set():
@@ -76,6 +81,10 @@ def run_search(
                     batch = scrape_osm(trade, lat, lon, radius_m, limit)
                 elif src == "Google":
                     batch = scrape_google(trade, location, limit, lat=lat, lon=lon)
+                elif src == "Google Places":
+                    batch = scrape_google_places(
+                        trade, location, limit, lat=lat, lon=lon, radius_m=radius_m
+                    )
                 else:
                     batch = SRC_FN[src](trade, location, limit)
                 collected.extend(batch)
