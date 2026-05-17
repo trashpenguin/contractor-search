@@ -62,6 +62,18 @@ class TradeSelector(QWidget):
     # ── internals ─────────────────────────────────────────────────────────────
 
     def _build(self):
+        # Pre-create checkboxes immediately so _checkboxes is always populated
+        # even before the panel is first opened.
+        for t, col in self._trades.items():
+            cb = QCheckBox(t)
+            cb.setChecked(True)
+            cb.setStyleSheet(
+                f"QCheckBox{{color:{col};font-weight:700;font-size:12px;padding:3px 4px;}}"
+                f"QCheckBox:hover{{background:#1e2436;border-radius:4px;}}"
+            )
+            cb.stateChanged.connect(self._on_changed)
+            self._checkboxes[t] = cb
+
         lay = QHBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
         self._btn = QPushButton()
@@ -153,15 +165,7 @@ class TradeSelector(QWidget):
         list_lay.setContentsMargins(2, 2, 2, 2)
         list_lay.setSpacing(2)
 
-        for t, col in self._trades.items():
-            cb = QCheckBox(t)
-            cb.setChecked(True)
-            cb.setStyleSheet(
-                f"QCheckBox{{color:{col};font-weight:700;font-size:12px;padding:3px 4px;}}"
-                f"QCheckBox:hover{{background:#1e2436;border-radius:4px;}}"
-            )
-            cb.stateChanged.connect(self._on_changed)
-            self._checkboxes[t] = cb
+        for cb in self._checkboxes.values():
             list_lay.addWidget(cb)
 
         list_lay.addStretch()
