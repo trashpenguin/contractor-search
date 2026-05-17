@@ -192,7 +192,7 @@ def scrape_google_places(
     Reads the API key from ~/.contractor_finder_settings.json.
     Returns [] if no key is configured.
     """
-    from settings import get as settings_get
+    from config import get as settings_get
 
     api_key = (settings_get("google_places_api_key") or "").strip()
     if not api_key:

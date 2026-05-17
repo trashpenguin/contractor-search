@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 import os
+from pathlib import Path
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 LOG_LEVEL: str = os.environ.get("LOG_LEVEL", "INFO").upper()
@@ -24,3 +26,28 @@ SEM_DEFAULT: int = int(os.environ.get("SEM_DEFAULT", "6"))
 # ── Cache TTLs (seconds) ──────────────────────────────────────────────────────
 TTL_CONTACT: int = int(os.environ.get("TTL_CONTACT", str(7 * 86400)))  # 7 days
 TTL_DDG: int = int(os.environ.get("TTL_DDG", str(1 * 86400)))  # 1 day
+
+# ── User-persistent settings ──────────────────────────────────────────────────
+# Stored in ~/.contractor_finder_settings.json so values survive restarts.
+
+_SETTINGS_FILE = Path.home() / ".contractor_finder_settings.json"
+
+
+def _load_settings() -> dict:
+    try:
+        return json.loads(_SETTINGS_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def get(key: str, default=None):
+    return _load_settings().get(key, default)
+
+
+def set(key: str, value) -> None:  # noqa: A001
+    data = _load_settings()
+    data[key] = value
+    try:
+        _SETTINGS_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    except Exception:
+        pass

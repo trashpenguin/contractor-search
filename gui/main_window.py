@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-import settings as _settings
+import config as _settings
 from cache import CACHE, SEARCH_HISTORY
 from compat import HAS_AIOHTTP, HAS_DNS, HAS_SCRAPLING
 from constants import TRADE_COLORS
