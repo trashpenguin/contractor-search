@@ -4,9 +4,59 @@ import csv
 import os
 import tempfile
 import webbrowser
-from dataclasses import asdict
 
 from PySide6.QtWidgets import QDialog, QDialogButtonBox, QFileDialog, QLabel, QTextEdit, QVBoxLayout
+
+# Column headers matching the Monday.com board layout.
+# Blank columns (Follow-up Date, Link for file, etc.) are left empty for
+# the user to fill in after import.
+_BOARD_HEADERS = [
+    "Name",
+    "Follow-up Date",
+    "Sub's Phone",
+    "Link for file",
+    "Bid Deadline",
+    "Sub's Email",
+    "Job Date",
+    "Scope of Work",
+    "Project Address",
+    "Subcontractor Role",
+    "Status",
+]
+
+
+def _to_board_row(contractor) -> dict:
+    return {
+        "Name": contractor.name,
+        "Follow-up Date": "",
+        "Sub's Phone": contractor.phone,
+        "Link for file": "",
+        "Bid Deadline": "",
+        "Sub's Email": contractor.email,
+        "Job Date": "",
+        "Scope of Work": "",
+        "Project Address": contractor.address,
+        "Subcontractor Role": contractor.trade,
+        "Status": "NOT STARTED",
+    }
+
+
+def _write_board_csv(writer, rows):
+    """Write rows grouped by trade, matching the board's group layout."""
+    from collections import defaultdict
+
+    groups: dict = defaultdict(list)
+    for c in rows:
+        groups[c.trade].append(c)
+
+    for trade, contractors in groups.items():
+        # Group header row — mirrors the coloured trade label in the board
+        writer.writerow(
+            {h: "" for h in _BOARD_HEADERS} | {"Name": f"── {trade} ({len(contractors)})"}
+        )
+        for c in contractors:
+            writer.writerow(_to_board_row(c))
+        writer.writerow({h: "" for h in _BOARD_HEADERS})  # blank spacer between groups
 
 
 class ExportMixin:
@@ -16,26 +66,27 @@ class ExportMixin:
         tmp = tempfile.NamedTemporaryFile(
             delete=False, suffix=".csv", mode="w", newline="", encoding="utf-8"
         )
-        fields = ["trade", "source", "name", "phone", "email", "website", "address"]
-        w = csv.DictWriter(tmp, fieldnames=fields)
+        w = csv.DictWriter(tmp, fieldnames=_BOARD_HEADERS)
         w.writeheader()
-        for c in self.rows:
-            d = asdict(c)
-            w.writerow({k: d.get(k, "") for k in fields})
+        _write_board_csv(w, self.rows)
         tmp.close()
         dlg = QDialog(self)
         dlg.setWindowTitle("Export to Google Sheets")
-        dlg.resize(460, 260)
+        dlg.resize(480, 280)
         lay = QVBoxLayout(dlg)
-        lay.addWidget(QLabel("<b>CSV saved! Import steps:</b>"))
+        lay.addWidget(QLabel("<b>CSV ready — import steps:</b>"))
         te = QTextEdit()
         te.setReadOnly(True)
         te.setPlainText(
-            f"File: {tmp.name}\n\n"
+            f"File saved: {tmp.name}\n\n"
             "1. Google Sheets will open in your browser\n"
-            "2. Click  File → Import → Upload tab\n"
-            f"3. Select file: {os.path.basename(tmp.name)}\n"
-            "4. Choose 'Replace spreadsheet' → Import data"
+            "2. File → Import → Upload tab\n"
+            f"3. Select: {os.path.basename(tmp.name)}\n"
+            "4. Separator: Comma  |  'Replace spreadsheet' → Import data\n\n"
+            "Columns match your board:\n"
+            "  Name · Follow-up Date · Sub's Phone · Link for file\n"
+            "  Bid Deadline · Sub's Email · Job Date · Scope of Work\n"
+            "  Project Address · Subcontractor Role · Status"
         )
         lay.addWidget(te)
         bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
@@ -51,13 +102,10 @@ class ExportMixin:
         path, _ = QFileDialog.getSaveFileName(self, "Save CSV", "contractors.csv", "CSV (*.csv)")
         if not path:
             return
-        fields = ["trade", "source", "name", "phone", "email", "website", "address"]
         with open(path, "w", newline="", encoding="utf-8") as f:
-            w = csv.DictWriter(f, fieldnames=fields)
+            w = csv.DictWriter(f, fieldnames=_BOARD_HEADERS)
             w.writeheader()
-            for c in self.rows:
-                d = asdict(c)
-                w.writerow({k: d.get(k, "") for k in fields})
+            _write_board_csv(w, self.rows)
         self.statusBar().showMessage(f"Saved {len(self.rows)} rows → {path}")
 
     def export_txt(self):
@@ -66,15 +114,18 @@ class ExportMixin:
         path, _ = QFileDialog.getSaveFileName(self, "Save TXT", "contractors.txt", "Text (*.txt)")
         if not path:
             return
+        from collections import defaultdict
+
+        groups: dict = defaultdict(list)
+        for c in self.rows:
+            groups[c.trade].append(c)
+
         with open(path, "w", encoding="utf-8") as f:
-            for trade in ["HVAC", "Electrical", "Excavating"]:
-                g = [c for c in self.rows if c.trade == trade]
-                if not g:
-                    continue
-                f.write(f"\n{'='*50}\n{trade.upper()} ({len(g)})\n{'='*50}\n")
-                for i, c in enumerate(g, 1):
+            for trade, contractors in groups.items():
+                f.write(f"\n{'=' * 50}\n{trade.upper()} ({len(contractors)})\n{'=' * 50}\n")
+                for i, c in enumerate(contractors, 1):
                     f.write(
-                        f"\n{i}. {c.name}  [{c.source}]\n"
+                        f"\n{i}. {c.name}\n"
                         f"   Phone:   {c.phone or 'N/A'}\n"
                         f"   Email:   {c.email or 'N/A'}\n"
                         f"   Website: {c.website or 'N/A'}\n"
