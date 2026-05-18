@@ -316,6 +316,7 @@ class MainWindow(SearchMixin, TableMixin, ExportMixin, QMainWindow):
         self.table.setShowGrid(False)
         for i, w in enumerate([80, 100, 200, 135, 185, 90, 175, 180, 140]):
             self.table.setColumnWidth(i, w)
+        self._setup_link_columns()
         root.addWidget(self.table)
 
         # Export buttons

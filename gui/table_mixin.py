@@ -1,14 +1,57 @@
 from __future__ import annotations
 
-from PySide6.QtGui import QBrush, QColor, QFont
-from PySide6.QtWidgets import QTableWidgetItem
+from PySide6.QtCore import Qt, QUrl
+from PySide6.QtGui import QBrush, QColor, QDesktopServices, QFont
+from PySide6.QtWidgets import QStyledItemDelegate, QTableWidgetItem
 
 from constants import SOURCE_COLORS, TRADE_COLORS
 from extractor import email_role_warning
 from gui.style import VERIFY_COLORS, VERIFY_ICONS
 
+_EMAIL_COL = 4
+_WEBSITE_COL = 6
+
+
+class _LinkDelegate(QStyledItemDelegate):
+    """Underlines non-empty cells so they look like hyperlinks."""
+
+    def initStyleOption(self, option, index):
+        super().initStyleOption(option, index)
+        if index.data():
+            option.font.setUnderline(True)
+
 
 class TableMixin:
+    def _setup_link_columns(self):
+        """Call once after self.table is created to wire up clickable links."""
+        delegate = _LinkDelegate(self.table)
+        self.table.setItemDelegateForColumn(_EMAIL_COL, delegate)
+        self.table.setItemDelegateForColumn(_WEBSITE_COL, delegate)
+        self.table.setMouseTracking(True)
+        self.table.cellEntered.connect(self._on_cell_entered)
+        self.table.cellClicked.connect(self._on_cell_clicked)
+
+    def _on_cell_entered(self, row: int, col: int):
+        if col in (_EMAIL_COL, _WEBSITE_COL):
+            item = self.table.item(row, col)
+            if item and item.text().strip():
+                self.table.setCursor(Qt.CursorShape.PointingHandCursor)
+                return
+        self.table.setCursor(Qt.CursorShape.ArrowCursor)
+
+    def _on_cell_clicked(self, row: int, col: int):
+        item = self.table.item(row, col)
+        if not item:
+            return
+        text = item.text().strip()
+        if not text:
+            return
+        if col == _EMAIL_COL:
+            QDesktopServices.openUrl(QUrl(f"mailto:{text}"))
+        elif col == _WEBSITE_COL:
+            url = text if text.startswith("http") else f"https://{text}"
+            QDesktopServices.openUrl(QUrl(url))
+
     def _add_row(self, c):
         self.rows.append(c)
         self._filter()
@@ -36,6 +79,8 @@ class TableMixin:
             item.setBackground(QBrush(bg))
             if bold:
                 item.setFont(QFont("Segoe UI", 11, QFont.Bold))
+            if col in (_EMAIL_COL, _WEBSITE_COL) and val:
+                item.setToolTip("Click to open")
             self.table.setItem(row, col, item)
         self.table.setRowHeight(row, 30)
 
