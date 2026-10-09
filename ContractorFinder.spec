@@ -11,14 +11,15 @@ pw_d,  pw_b,  pw_h  = collect_all('playwright')
 pr_d,  pr_b,  pr_h  = collect_all('patchright')
 bf_d,  bf_b,  bf_h  = collect_all('browserforge')
 sc_d,  sc_b,  sc_h  = collect_all('scrapling')
+fp_d,  fp_b,  fp_h  = collect_all('apify_fingerprint_datapoints')
 
 a = Analysis(
     ['contractor_gui.py'],
     pathex=[],
-    binaries=pw_b + pr_b + bf_b + sc_b,
-    datas=pw_d + pr_d + bf_d + sc_d,
+    binaries=pw_b + pr_b + bf_b + sc_b + fp_b,
+    datas=pw_d + pr_d + bf_d + sc_d + fp_d,
     hiddenimports=(
-        pw_h + pr_h + bf_h + sc_h
+        pw_h + pr_h + bf_h + sc_h + fp_h
         + collect_submodules('dns')
         + collect_submodules('aiohttp')
         + [

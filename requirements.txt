@@ -8,3 +8,4 @@ dnspython==2.9.0
 msgspec==0.22.0
 aiohttp==3.14.4
 python-whois==0.9.6
+apify_fingerprint_datapoints==0.15.0

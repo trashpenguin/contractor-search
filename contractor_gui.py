@@ -140,7 +140,9 @@ if __name__ == "__main__":
         if not all((HAS_AIOHTTP, HAS_DNS, HAS_SCRAPLING)):
             _logger.error(
                 "Runtime dependency check failed: Scrapling=%s aiohttp=%s DNS=%s",
-                HAS_SCRAPLING, HAS_AIOHTTP, HAS_DNS,
+                HAS_SCRAPLING,
+                HAS_AIOHTTP,
+                HAS_DNS,
             )
             sys.exit(2)
     app = QApplication(sys.argv)
