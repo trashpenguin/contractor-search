@@ -138,7 +138,11 @@ if __name__ == "__main__":
         from compat import HAS_AIOHTTP, HAS_DNS, HAS_SCRAPLING
 
         if not all((HAS_AIOHTTP, HAS_DNS, HAS_SCRAPLING)):
-            raise RuntimeError("Required runtime dependencies are unavailable")
+            _logger.error(
+                "Runtime dependency check failed: Scrapling=%s aiohttp=%s DNS=%s",
+                HAS_SCRAPLING, HAS_AIOHTTP, HAS_DNS,
+            )
+            sys.exit(2)
     app = QApplication(sys.argv)
     app.setStyleSheet(STYLE)
     app.setApplicationName("Contractor Finder v3")
