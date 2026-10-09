@@ -537,6 +537,11 @@ def _yelp_ddg_fallback(kw: str, city_raw: str, state: str, limit: int) -> list[d
             pm = PHONE_RE.search(snippet or "")
             if pm:
                 phone = pm.group(1)
+            from enricher import website_matches
+
+            candidate = Contractor(name=name, phone=phone, address=snippet or "")
+            if not website_matches(candidate, http_get(url, timeout=8, retries=0)):
+                continue
             results.append(
                 {"name": name, "biz_url": "", "phone": phone, "address": "", "website": url}
             )
@@ -572,7 +577,7 @@ def scrape_yelp(trade: str, location: str, limit: int) -> list[Contractor]:
     city_raw = location.split(",")[0].strip()
     # Extract 2-letter state code from the location string (e.g. "Warren, MI 48091" → "MI")
     # Old code used "mi" in location which matched "Miami, FL" and returned wrong state.
-    _state_m = re.search(r"\b([A-Z]{2})\b", location.upper())
+    _state_m = re.search(r"\b([A-Z]{2})\b", location.split(",")[-1].upper())
     state = _state_m.group(1) if _state_m else location.split(",")[-1].strip()[:2].upper()
 
     cache_key = _cache_key(trade, location, limit)

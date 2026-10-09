@@ -384,6 +384,7 @@ def test_contact_cache_migrates_old_database(tmp_path):
 
 def test_browser_readiness_uses_patchright_playwright_factory(tmp_path):
     from browser_setup import browsers_ready
+
     executable = tmp_path / "chromium"
     executable.touch()
     runtime = SimpleNamespace(chromium=SimpleNamespace(executable_path=str(executable)))
@@ -391,6 +392,7 @@ def test_browser_readiness_uses_patchright_playwright_factory(tmp_path):
     class Context:
         def __enter__(self):
             return runtime
+
         def __exit__(self, *args):
             pass
 

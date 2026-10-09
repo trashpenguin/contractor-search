@@ -283,6 +283,7 @@ def scrape_google(
                         website=website,
                         address=entry.get("address", ""),
                         source="Google",
+                        discovery_url=url,
                     )
                 )
 

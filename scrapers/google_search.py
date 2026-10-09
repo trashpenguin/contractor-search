@@ -202,6 +202,7 @@ def scrape_google_search(trade: str, location: str, limit: int) -> list[Contract
                             if len(out) >= limit:
                                 break
                             c.trade = trade
+                            c.discovery_url = url
                             norm_name = re.sub(r"[^a-z0-9]", "", c.name.lower())
                             phone_key = re.sub(r"[^0-9]", "", c.phone)[-10:] if c.phone else ""
                             address_key = re.sub(r"[^a-z0-9]", "", c.address.lower())
