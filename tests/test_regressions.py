@@ -292,23 +292,29 @@ def test_cached_contact_preserves_source_url(tmp_path):
 
 def test_provenance_keeps_exact_contact_page():
     from provenance import record_contact
-    row = Contractor("HVAC", "Smith", email="office@smith.com",
-                     website="https://smith.com",
-                     email_source_url="https://smith.com/contact")
+
+    row = Contractor(
+        "HVAC",
+        "Smith",
+        email="office@smith.com",
+        website="https://smith.com",
+        email_source_url="https://smith.com/contact",
+    )
     record_contact(row, row.website)
     assert row.email_source_url == "https://smith.com/contact"
 
 
 def test_null_mx_is_not_a_valid_mail_domain():
     from extractor import verify_email
-    with patch("dns.resolver.resolve",
-               return_value=[SimpleNamespace(exchange=".")]):
+
+    with patch("dns.resolver.resolve", return_value=[SimpleNamespace(exchange=".")]):
         assert verify_email("office@smithhvac.com")[0] == "invalid"
 
 
 def test_ddg_enrichment_remains_responsive_and_stops():
     from enricher import enrich_batch_async
     from http_client import interruptible_sleep
+
     started = threading.Event()
     stop = threading.Event()
 
@@ -318,9 +324,9 @@ def test_ddg_enrichment_remains_responsive_and_stops():
         return []
 
     async def scenario():
-        task = asyncio.create_task(enrich_batch_async(
-            [Contractor("HVAC", "Smith HVAC")], "Warren", stop_ev=stop
-        ))
+        task = asyncio.create_task(
+            enrich_batch_async([Contractor("HVAC", "Smith HVAC")], "Warren", stop_ev=stop)
+        )
         await asyncio.wait_for(asyncio.to_thread(started.wait), timeout=2)
         # Reaching here demonstrates DDG did not block the event loop.
         stop.set()
@@ -334,16 +340,20 @@ def test_ddg_enrichment_remains_responsive_and_stops():
 
 def test_google_does_not_assign_unrelated_page_contacts():
     from scrapers.google import scrape_google
+
     response = SimpleNamespace(body="<html></html>")
     session = SimpleNamespace(fetch=lambda *args, **kwargs: response)
     with patch("scrapers.google.StealthySession") as factory:
         factory.return_value.__enter__.return_value = session
-        with patch("scrapers.google._parse_feed",
-                   return_value=[{"name": "Smith HVAC"}]):
-            with patch("scrapers.google._parse_app_state", return_value={
-                "names": ["Other Company"], "phones": ["3135559999"],
-                "websites": ["https://othercompany.com"],
-            }):
+        with patch("scrapers.google._parse_feed", return_value=[{"name": "Smith HVAC"}]):
+            with patch(
+                "scrapers.google._parse_app_state",
+                return_value={
+                    "names": ["Other Company"],
+                    "phones": ["3135559999"],
+                    "websites": ["https://othercompany.com"],
+                },
+            ):
                 rows = scrape_google("HVAC", "48091", 10)
     assert rows[0].phone == ""
     assert rows[0].website == ""
@@ -351,7 +361,9 @@ def test_google_does_not_assign_unrelated_page_contacts():
 
 def test_contact_cache_migrates_old_database(tmp_path):
     import sqlite3
+
     from cache import ContactCache
+
     path = tmp_path / "old.db"
     with sqlite3.connect(path) as connection:
         connection.execute(
@@ -360,6 +372,28 @@ def test_contact_cache_migrates_old_database(tmp_path):
         )
     with patch.object(ContactCache, "DB_PATH", str(path)):
         cache = ContactCache()
-    cache.set_contact("site", "office@smith.com", "", "https://smith.com",
-                      {"email_source_url": "https://smith.com/contact"})
+    cache.set_contact(
+        "site",
+        "office@smith.com",
+        "",
+        "https://smith.com",
+        {"email_source_url": "https://smith.com/contact"},
+    )
     assert cache.get_contact("site")["email_source_url"].endswith("/contact")
+
+
+def test_browser_readiness_uses_patchright_playwright_factory(tmp_path):
+    from browser_setup import browsers_ready
+    executable = tmp_path / "chromium"
+    executable.touch()
+    runtime = SimpleNamespace(chromium=SimpleNamespace(executable_path=str(executable)))
+
+    class Context:
+        def __enter__(self):
+            return runtime
+        def __exit__(self, *args):
+            pass
+
+    api = SimpleNamespace(sync_playwright=lambda: Context())
+    with patch("browser_setup.importlib.import_module", return_value=api):
+        assert browsers_ready()

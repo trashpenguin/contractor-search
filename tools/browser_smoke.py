@@ -12,7 +12,7 @@ if not install_browsers(print):
     raise RuntimeError("Browser installation did not complete")
 for package in ("playwright", "patchright"):
     api = importlib.import_module(f"{package}.sync_api")
-    with getattr(api, f"sync_{package}")() as runtime:
+    with api.sync_playwright() as runtime:
         browser = runtime.chromium.launch(headless=True)
         page = browser.new_page()
         page.set_content("<h1>Contractor Finder browser smoke test</h1>")

@@ -123,8 +123,7 @@ def scrape_google_search(trade: str, location: str, limit: int) -> list[Contract
         raise RuntimeError("Google Search requires Scrapling browser dependencies")
 
     query_terms: list[str] = TRADE_KW[trade].get("gsearch", [TRADE_KW[trade]["google"]])
-    seen_phones: set[str] = set()
-    seen_names: set[str] = set()
+    seen_records: set[tuple] = set()
     out: list[Contractor] = []
 
     terms_todo = list(query_terms)
@@ -205,14 +204,11 @@ def scrape_google_search(trade: str, location: str, limit: int) -> list[Contract
                             c.trade = trade
                             norm_name = re.sub(r"[^a-z0-9]", "", c.name.lower())
                             phone_key = re.sub(r"[^0-9]", "", c.phone)[-10:] if c.phone else ""
-                            if phone_key and phone_key in seen_phones:
+                            address_key = re.sub(r"[^a-z0-9]", "", c.address.lower())
+                            identity = (norm_name, phone_key, address_key)
+                            if identity in seen_records:
                                 continue
-                            if norm_name and norm_name in seen_names:
-                                continue
-                            if phone_key:
-                                seen_phones.add(phone_key)
-                            if norm_name:
-                                seen_names.add(norm_name)
+                            seen_records.add(identity)
                             out.append(c)
                             new += 1
 

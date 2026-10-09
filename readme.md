@@ -1,8 +1,8 @@
 # Contractor Finder v3.4
 
-Professional desktop application for finding contractors (HVAC, Electrical, Excavating) across USA locations. Aggregates data from OpenStreetMap, YellowPages, Yelp, and Google Maps, then enriches results with phone numbers, emails, and websites via a fully async pipeline.
+Professional desktop application for finding contractors (HVAC, Electrical, Excavating) across USA locations. Aggregates data from OpenStreetMap, YellowPages, Yelp, and Google Maps, then enriches results with phone numbers, emails, and websites with asynchronous website enrichment.
 
-![Python Version](https://img.shields.io/badge/python-3.9+-blue.svg)
+![Python Version](https://img.shields.io/badge/python-3.11+-blue.svg)
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)
 
@@ -10,7 +10,7 @@ Professional desktop application for finding contractors (HVAC, Electrical, Exca
 
 ## Quick Start
 
-**Windows (no setup needed):**
+**Windows (automatic setup):**
 
 ```bash
 git clone https://github.com/trashpenguin/contractor-search.git
@@ -30,7 +30,7 @@ python -m patchright install chromium
 python contractor_gui.py
 ```
 
-> **Requirements:** Python 3.9+ must be installed. Everything else is handled automatically.
+> **Requirements:** Python 3.11+ must be installed. Everything else is handled automatically.
 
 ---
 
@@ -38,7 +38,7 @@ python contractor_gui.py
 
 **Contractor Finder** is a PySide6 desktop application that automates the full contractor discovery workflow:
 
-1. **Discover** — Searches OSM, YellowPages, Yelp, and Google Maps simultaneously
+1. **Discover** — Searches selected sources sequentially, then enriches websites concurrently
 2. **Enrich** — Finds and scrapes each contractor's website for phone numbers and emails
 3. **Verify** — Validates emails via MX record checks and detects role accounts
 4. **Export** — Save results as CSV, TXT, or import into Google Sheets
@@ -56,7 +56,7 @@ Built with Scrapling stealth browser automation, a rate-aware DDG pipeline, and 
 - Opt-in proxy rotation (proxifly + 5 other free lists) with health scoring and instant circuit-break on timeout
 - Domain guessing engine — 11 patterns including `.net` and trade-suffix variants, zero rate limits
 - 4-strategy deep email hunt: JS file scan, sitemap crawl, WHOIS lookup, DDG snippet search (extracted to `email_hunter.py`)
-- Guessed emails tagged separately (gold "~" indicator) so they're distinguishable from scraped emails
+- Guessed emails labeled separately in the table and exports so they're distinguishable from scraped emails
 - Cloudflare `data-cfemail` obfuscation decode
 - Role account detection (`info@`, `contact@`, etc.)
 - Email MX-based verification
@@ -85,13 +85,13 @@ Built with Scrapling stealth browser automation, a rate-aware DDG pipeline, and 
 | YellowPages | StealthySession — multi-page with auto retry | Cloudflare 530 handled with 30s backoff |
 | Yelp | 3-phase: curl_cffi → StealthySession → DDG fallback | Phase 3 harvests contractor websites directly from DDG results |
 | Google Maps | StealthySession with `page_action` scroll (10×) | Geocoded lat/lon for city-level zoom; extracts from JS blob + feed cards + place URLs |
-| DuckDuckGo | HTML endpoint — rate-limited, cached | Used for website discovery and email hunting; capped at 8 lookups per trade |
+| DuckDuckGo | HTML endpoint — rate-limited, cached | Used for website discovery and email hunting; capped by DDG_CAP (30 by default) |
 
 ---
 
 ## Requirements
 
-- Python 3.9+
+- Python 3.11+
 
 ```bash
 pip install -r requirements.txt
@@ -553,3 +553,32 @@ This tool is intended for legitimate business research only. Respect website rat
 ## Support
 
 Open an issue on GitHub for bug reports or feature requests.
+
+
+## Contact accuracy and exports
+
+Website guesses require the business name and matching phone or address evidence.
+Records with conflicting phones or addresses are kept separate. Guessed email
+addresses remain labeled **Guessed** after DNS verification: a mail-enabled domain
+does not confirm that a mailbox exists.
+
+Export CSV writes one contractor per row with source URLs, discovery time,
+confidence, email acquisition method, and verification status. Export Board CSV
+retains the grouped board layout. CSV saves replace the destination atomically.
+Search radius values are miles in the interface and meters internally; OSM
+fallback results are filtered by distance. Other provider searches use their
+location or bias controls and may return businesses outside that radius.
+
+Stop cancels queued enrichment and interruptible retry delays. An active
+synchronous HTTP or browser request may finish its timeout before stopping.
+Results already displayed are retained. Search and verification cannot overlap;
+closing waits for active workers to finish.
+
+## Development checks
+
+Install `requirements.txt` and `requirements-dev.txt`, then run `QT_QPA_PLATFORM=offscreen pytest tests/ -v`
+(on Windows, set the environment variable before invoking pytest).
+CI checks formatting, real Qt and parser dependencies, source GUI startup, and
+the frozen Windows application. The Windows build artifact is available from
+the successful CI run. `--smoke-test` exits the GUI automatically and skips
+first-run browser installation.

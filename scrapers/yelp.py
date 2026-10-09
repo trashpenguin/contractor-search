@@ -602,12 +602,13 @@ def scrape_yelp(trade: str, location: str, limit: int) -> list[Contractor]:
 
     # ── Biz page enrichment (http_get — not the blocked session) ─────────────
     out: list[Contractor] = []
-    seen_names: set[str] = set()
+    seen_names: set[tuple] = set()
     for biz in raw_businesses[:limit]:
         name = biz.get("name", "").strip()
-        if not name or name in seen_names:
+        identity = (name.casefold(), biz.get("phone", ""), biz.get("address", ""))
+        if not name or identity in seen_names:
             continue
-        seen_names.add(name)
+        seen_names.add(identity)
         phone = biz.get("phone", "")
         website = biz.get("website", "")  # may already be set by DDG Strategy C
 

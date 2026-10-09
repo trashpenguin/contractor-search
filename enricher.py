@@ -11,7 +11,7 @@ from config import DDG_CAP, SEM_DDG, SEM_DEFAULT, SEM_GOOGLE, SEM_YELLOWPAGES
 from constants import _FATAL_PROXY_ERRORS, SCRAPE_SKIP, SKIP_DOMAINS, TRADE_KW
 from email_hunter import _ddg_email_hunt, _scan_js_for_email, _scan_sitemap_for_email, _whois_email
 from extractor import _clean_email, _ok_email, extract_contacts, verify_email
-from http_client import call_with_stop, http_get
+from http_client import SearchCancelled, call_with_stop, http_get
 from models import Contractor
 from provenance import record_contact
 from proxy import PROXY_MGR
@@ -422,8 +422,12 @@ async def enrich_batch_async(
                 for task in completed:
                     try:
                         task.result()
+                    except SearchCancelled as exc:
+                        raise asyncio.CancelledError() from exc
                     except Exception as exc:
                         logger.debug("[Enrich] task error: %s", exc)
+            if stop_ev is not None and stop_ev.is_set():
+                raise asyncio.CancelledError()
         finally:
             for task in tasks:
                 if not task.done():

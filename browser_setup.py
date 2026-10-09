@@ -18,7 +18,7 @@ def browsers_ready() -> bool:
     for package in ("playwright", "patchright"):
         try:
             api = importlib.import_module(f"{package}.sync_api")
-            factory = getattr(api, f"sync_{package}")
+            factory = api.sync_playwright
             with factory() as runtime:
                 if not Path(runtime.chromium.executable_path).is_file():
                     return False
