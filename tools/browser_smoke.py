@@ -1,11 +1,12 @@
 """Install and launch both real Chromium engines on the Windows runner."""
+
 import importlib
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from browser_setup import install_browsers
+from browser_setup import install_browsers  # noqa: E402
 
 if not install_browsers(print):
     raise RuntimeError("Browser installation did not complete")

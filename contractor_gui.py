@@ -134,6 +134,11 @@ def _ensure_browsers() -> None:
 
 
 if __name__ == "__main__":
+    if "--smoke-test" in sys.argv:
+        from compat import HAS_AIOHTTP, HAS_DNS, HAS_SCRAPLING
+
+        if not all((HAS_AIOHTTP, HAS_DNS, HAS_SCRAPLING)):
+            raise RuntimeError("Required runtime dependencies are unavailable")
     app = QApplication(sys.argv)
     app.setStyleSheet(STYLE)
     app.setApplicationName("Contractor Finder v3")

@@ -188,14 +188,15 @@ class SearchMixin:
         contractor.email_status = status
         self._filter()
 
-    def _on_verify_done(self):
-        self.pbar.setValue(100)
+    def _on_verify_done(self, status="completed"):
+        if status == "completed":
+            self.pbar.setValue(100)
         self.xbtn.setEnabled(False)
         v = sum(1 for r in self.rows if r.email_status == "valid")
         inv = sum(1 for r in self.rows if r.email_status == "invalid")
         unk = sum(1 for r in self.rows if r.email_status == "unknown")
         self.statusBar().showMessage(
-            f"Email verify done  —  ✅ Valid:{v}  ❌ Invalid:{inv}  ❓ Unknown:{unk}"
+            f"Email verification {status}  —  ✅ Mail domain:{v}  ❌ Invalid:{inv}  ❓ Unknown:{unk}"
         )
 
     def _busy(self):

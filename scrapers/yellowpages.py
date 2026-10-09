@@ -108,6 +108,7 @@ def scrape_yellowpages(trade: str, location: str, limit: int) -> list[Contractor
         )
         return any(m in html for m in cf_markers)
 
+    last_error = None
     for attempt in range(3):
         out = []
         try:
@@ -139,6 +140,7 @@ def scrape_yellowpages(trade: str, location: str, limit: int) -> list[Contractor
                     except SearchCancelled:
                         raise
                     except Exception as e:
+                        last_error = e
                         logger.info(f"[YP] page {pg} error: {type(e).__name__}")
                         break
                     if isinstance(html, bytes):
@@ -149,6 +151,7 @@ def scrape_yellowpages(trade: str, location: str, limit: int) -> list[Contractor
                         or _is_cloudflare(html)
                         or len(html) < 30_000
                     ):
+                        last_error = RuntimeError("YellowPages blocked the request")
                         logger.info(
                             f"[YP] Blocked on page {pg} "
                             f"(status {resp.status}, len={len(html)}), attempt {attempt+1}/3"
@@ -291,6 +294,7 @@ def scrape_yellowpages(trade: str, location: str, limit: int) -> list[Contractor
         except SearchCancelled:
             raise
         except Exception as e:
+            last_error = e
             logger.info(f"[YP] Session error attempt {attempt+1}: {type(e).__name__}: {e}")
             interruptible_sleep(2)
             continue
@@ -299,5 +303,7 @@ def scrape_yellowpages(trade: str, location: str, limit: int) -> list[Contractor
         logger.info(f"[YP] Attempt {attempt+1} got 0 results, retrying...")
         interruptible_sleep(3)
 
+    if not out and last_error is not None:
+        raise RuntimeError("YellowPages source failed") from last_error
     logger.info(f"[YP] {trade}: {len(out)} total")
     return out[:limit]

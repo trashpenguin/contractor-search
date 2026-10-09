@@ -46,7 +46,7 @@ class SearchWorker(QThread):
 class VerifyWorker(QThread):
     progress = Signal(int, str)
     result = Signal(str, str, str)
-    completed = Signal()
+    completed = Signal(str)
 
     def __init__(self, rows):
         super().__init__()
@@ -69,7 +69,7 @@ class VerifyWorker(QThread):
                 if self._stop.wait(0.1):
                     break
         finally:
-            self.completed.emit()
+            self.completed.emit("cancelled" if self._stop.is_set() else "completed")
 
     def stop(self):
         self._stop.set()

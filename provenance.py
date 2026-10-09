@@ -8,7 +8,8 @@ from models import Contractor
 def record_contact(contractor: Contractor, url: str = "") -> None:
     if contractor.email and not contractor.email_method:
         contractor.email_method = "scraped"
-        contractor.email_source_url = url or contractor.discovery_url
+        if not contractor.email_source_url:
+            contractor.email_source_url = url or contractor.discovery_url
     if contractor.phone and not contractor.phone_source_url:
         contractor.phone_source_url = url or contractor.discovery_url
     if contractor.website and not contractor.website_method:
