@@ -43,7 +43,7 @@ class TestSimilar:
 
     def test_short_substring_no_match(self):
         # short keys (< 8 chars) don't get substring match
-        assert _similar("AB Co", "AB Corp") is False or True  # either result acceptable
+        assert _similar("AB", "ABC") is False
 
 
 class TestDomainKey:

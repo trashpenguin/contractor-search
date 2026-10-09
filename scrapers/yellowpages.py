@@ -3,11 +3,11 @@ from __future__ import annotations
 import json
 import logging
 import re
-import time
 from urllib.parse import quote_plus
 
 from compat import HAS_SCRAPLING, Adaptor, StealthySession
 from constants import PHONE_RE, TRADE_KW
+from http_client import SearchCancelled, check_cancelled, interruptible_sleep
 from models import Contractor
 
 logger = logging.getLogger("ContractorFinder")
@@ -24,6 +24,8 @@ def _parse_yp_nextdata(html: str) -> list[Contractor]:
         return []
     try:
         data = json.loads(m.group(1))
+    except SearchCancelled:
+        raise
     except Exception:
         return []
 
@@ -81,11 +83,12 @@ def scrape_yellowpages(trade: str, location: str, limit: int) -> list[Contractor
     Retries up to 3 times on Cloudflare blocks.
     Tries __NEXT_DATA__ JSON extraction first, falls back to CSS selectors.
     """
+    check_cancelled()
     out: list[Contractor] = []
     term = TRADE_KW[trade]["yp"]
     loc = quote_plus(location)
     if not HAS_SCRAPLING:
-        return out
+        raise RuntimeError("Browser scraping dependencies are unavailable")
 
     def _is_cloudflare(html) -> bool:
         if not html:
@@ -105,6 +108,7 @@ def scrape_yellowpages(trade: str, location: str, limit: int) -> list[Contractor
         )
         return any(m in html for m in cf_markers)
 
+    last_error = None
     for attempt in range(3):
         out = []
         try:
@@ -115,7 +119,9 @@ def scrape_yellowpages(trade: str, location: str, limit: int) -> list[Contractor
                 # can complete and set cookies before we touch the search page.
                 try:
                     session.fetch("https://www.yellowpages.com/", wait=5000)
-                    time.sleep(2)
+                    interruptible_sleep(2)
+                except SearchCancelled:
+                    raise
                 except Exception:
                     pass
 
@@ -131,7 +137,10 @@ def scrape_yellowpages(trade: str, location: str, limit: int) -> list[Contractor
                     try:
                         resp = session.fetch(url, wait=8000)
                         html = resp.body or ""
+                    except SearchCancelled:
+                        raise
                     except Exception as e:
+                        last_error = e
                         logger.info(f"[YP] page {pg} error: {type(e).__name__}")
                         break
                     if isinstance(html, bytes):
@@ -142,11 +151,12 @@ def scrape_yellowpages(trade: str, location: str, limit: int) -> list[Contractor
                         or _is_cloudflare(html)
                         or len(html) < 30_000
                     ):
+                        last_error = RuntimeError("YellowPages blocked the request")
                         logger.info(
                             f"[YP] Blocked on page {pg} "
                             f"(status {resp.status}, len={len(html)}), attempt {attempt+1}/3"
                         )
-                        time.sleep(15 + attempt * 10)
+                        interruptible_sleep(15 + attempt * 10)
                         break
 
                     # --- Try JSON extraction first ---
@@ -160,7 +170,7 @@ def scrape_yellowpages(trade: str, location: str, limit: int) -> list[Contractor
                         logger.info(
                             f"[YP] page {pg}: {len(json_results)} from JSON (total {len(out)})"
                         )
-                        time.sleep(1.5)
+                        interruptible_sleep(1.5)
                         continue
 
                     # --- CSS selector fallback ---
@@ -256,6 +266,7 @@ def scrape_yellowpages(trade: str, location: str, limit: int) -> list[Contractor
                             website=website,
                             address=address,
                             source="YellowPages",
+                            discovery_url=profile_url,
                         )
                         c._yp_profile_url = profile_url  # type: ignore[attr-defined]
                         out.append(c)
@@ -263,7 +274,7 @@ def scrape_yellowpages(trade: str, location: str, limit: int) -> list[Contractor
                     logger.info(f"[YP] page {pg}: {found} found (total {len(out)})")
                     if found == 0:
                         break
-                    time.sleep(1.5)
+                    interruptible_sleep(1.5)
                 # Fetch individual profile pages for any result still missing a phone
                 for contractor in out:
                     _pu = getattr(contractor, "_yp_profile_url", "")
@@ -275,17 +286,24 @@ def scrape_yellowpages(trade: str, location: str, limit: int) -> list[Contractor
                                 m = PHONE_RE.search(Adaptor(html2).get_all_text(separator=" "))
                                 if m:
                                     contractor.phone = m.group(1)
+                        except SearchCancelled:
+                            raise
                         except Exception:
                             pass
-                        time.sleep(0.5)
+                        interruptible_sleep(0.5)
+        except SearchCancelled:
+            raise
         except Exception as e:
+            last_error = e
             logger.info(f"[YP] Session error attempt {attempt+1}: {type(e).__name__}: {e}")
-            time.sleep(2)
+            interruptible_sleep(2)
             continue
         if out:
             break
         logger.info(f"[YP] Attempt {attempt+1} got 0 results, retrying...")
-        time.sleep(3)
+        interruptible_sleep(3)
 
+    if not out and last_error is not None:
+        raise RuntimeError("YellowPages source failed") from last_error
     logger.info(f"[YP] {trade}: {len(out)} total")
     return out[:limit]

@@ -277,17 +277,26 @@ def verify_email(email: str) -> tuple[str, str]:
     import dns.resolver as _dns
 
     try:
-        mx_records = _dns.resolve(domain, "MX")
+        mx_records = _dns.resolve(domain, "MX", lifetime=5)
         if mx_records:
-            return "valid", f"MX verified ({len(mx_records)} records)"
+            if any(str(record.exchange) == "." for record in mx_records):
+                return "invalid", "Domain explicitly does not accept mail (Null MX)"
+            return (
+                "valid",
+                f"Domain accepts mail ({len(mx_records)} MX records); mailbox unconfirmed",
+            )
     except _dns.NXDOMAIN:
         return "invalid", "Domain doesn't exist"
     except _dns.NoAnswer:
         try:
-            _dns.resolve(domain, "A")
+            _dns.resolve(domain, "A", lifetime=5)
             return "unknown", "No MX but domain exists"
-        except Exception:
-            return "invalid", "No MX or A record"
+        except _dns.NXDOMAIN:
+            return "invalid", "Domain doesn't exist"
+        except _dns.NoAnswer:
+            return "unknown", "No MX or A record"
+        except Exception as error:
+            return "unknown", f"DNS: {type(error).__name__}"
     except Exception as e:
         return "unknown", f"DNS: {type(e).__name__}"
     return "unknown", "Unexpected"

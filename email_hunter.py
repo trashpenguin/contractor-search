@@ -12,7 +12,7 @@ from urllib.parse import quote_plus, urljoin, urlparse
 from compat import HAS_SCRAPLING, Adaptor
 from constants import EMAIL_RE
 from extractor import _clean_email, _ok_email
-from http_client import http_get
+from http_client import SearchCancelled, check_cancelled, http_get
 
 logger = logging.getLogger("ContractorFinder")
 
@@ -23,6 +23,7 @@ def _scan_js_for_email(url: str, html: str) -> str:
     Site builders (Wix, Squarespace, GoDaddy) often embed the contact form
     destination email inside a JS config file even when hiding it from HTML.
     """
+    check_cancelled()
     if not html or not HAS_SCRAPLING:
         return ""
     domain = urlparse(url).netloc
@@ -98,6 +99,8 @@ def _whois_email(domain: str) -> str:
             if _ok_email(e) and not any(p in e for p in privacy):
                 logger.debug(f"[WHOIS] email found for {domain}")
                 return e
+    except SearchCancelled:
+        raise
     except Exception:
         pass
     return ""

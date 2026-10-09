@@ -74,6 +74,9 @@ class ContactCache:
                 created_at REAL
             )"""
             )
+            columns = {row[1] for row in conn.execute("PRAGMA table_info(contacts)")}
+            if "metadata" not in columns:
+                conn.execute("ALTER TABLE contacts ADD COLUMN metadata TEXT DEFAULT '{}'")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_contacts_ts ON contacts(created_at)")
             conn.commit()
             self._conn = conn
@@ -86,22 +89,29 @@ class ContactCache:
         try:
             with self._lock:
                 row = self._conn.execute(
-                    "SELECT email, phone, website, created_at FROM contacts WHERE key=?", (key,)
+                    "SELECT email, phone, website, created_at, metadata FROM contacts WHERE key=?",
+                    (key,),
                 ).fetchone()
                 if row and (time.time() - row[3]) < self.TTL_CONTACT:
-                    return {"email": row[0], "phone": row[1], "website": row[2]}
+                    return {
+                        "email": row[0],
+                        "phone": row[1],
+                        "website": row[2],
+                        **json.loads(row[4] or "{}"),
+                    }
         except Exception as e:
             logger.warning(f"[Cache] get_contact failed: {e}")
         return None
 
-    def set_contact(self, key: str, email: str, phone: str, website: str):
+    def set_contact(self, key: str, email: str, phone: str, website: str, metadata=None):
         if not self._conn:
             return
         try:
             with self._lock:
                 self._conn.execute(
-                    "INSERT OR REPLACE INTO contacts VALUES (?,?,?,?,?)",
-                    (key, email, phone, website, time.time()),
+                    "INSERT OR REPLACE INTO contacts (key,email,phone,website,created_at,metadata) "
+                    "VALUES (?,?,?,?,?,?)",
+                    (key, email, phone, website, time.time(), json.dumps(metadata or {})),
                 )
                 self._conn.commit()
         except Exception as e:
@@ -154,12 +164,12 @@ class ContactCache:
             return 0
         try:
             with self._lock:
+                count = self._conn.execute("SELECT COUNT(*) FROM contacts").fetchone()[0]
+                count += self._conn.execute("SELECT COUNT(*) FROM ddg_cache").fetchone()[0]
                 self._conn.execute("DELETE FROM contacts")
                 self._conn.execute("DELETE FROM ddg_cache")
                 self._conn.commit()
-                return self._conn.execute(
-                    "SELECT changes() + (SELECT COUNT(*) FROM sqlite_master WHERE 1=0)"
-                ).fetchone()[0]
+                return count
         except Exception as e:
             logger.warning(f"[Cache] clear_all failed: {e}")
             return 0

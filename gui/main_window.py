@@ -27,6 +27,7 @@ from gui.search_mixin import SearchMixin
 from gui.style import COLS
 from gui.table_mixin import TableMixin
 from gui.widgets import StatCard, TradeSelector
+from location import miles_to_meters
 from models import Contractor
 
 _SRC_IDLE_STYLE = (
@@ -101,13 +102,7 @@ class MainWindow(SearchMixin, TableMixin, ExportMixin, QMainWindow):
         rc.addWidget(self._lbl("Radius"))
         self.radius = QComboBox()
         self.radius.setFixedHeight(34)
-        self.rmap = {
-            "10 mi": "10000",
-            "25 mi": "25000",
-            "40 mi": "40000",
-            "60 mi": "60000",
-            "80 mi": "80000",
-        }
+        self.rmap = {f"{miles} mi": miles_to_meters(miles) for miles in (10, 25, 40, 60, 80)}
         for k in self.rmap:
             self.radius.addItem(k)
         self.radius.setCurrentIndex(2)
@@ -174,9 +169,9 @@ class MainWindow(SearchMixin, TableMixin, ExportMixin, QMainWindow):
         r2b.setSpacing(6)
         gp_lbl = self._lbl("Google Places API Key:")
         gp_lbl.setToolTip(
-            "Get a free key at console.cloud.google.com\n"
+            "Configure a key at console.cloud.google.com\n"
             "Enable 'Places API (New)' in your project.\n"
-            "Free tier: 5,000 requests/month."
+            "Review billing and quotas in your Google Cloud project."
         )
         r2b.addWidget(gp_lbl)
         self.gp_key = QLineEdit()
@@ -324,12 +319,15 @@ class MainWindow(SearchMixin, TableMixin, ExportMixin, QMainWindow):
         er.setSpacing(8)
         for txt, fn in [
             ("Export CSV", self.export_csv),
+            ("Export Board CSV", self.export_board_csv),
             ("Export TXT", self.export_txt),
             ("Clear", self.clear),
         ]:
             b = QPushButton(txt)
             b.clicked.connect(fn)
             b.setFixedHeight(32)
+            if txt == "Clear":
+                self.clear_btn = b
             er.addWidget(b)
         self.clear_cache_btn = QPushButton("Clear Cache")
         self.clear_cache_btn.setFixedHeight(32)
@@ -349,6 +347,8 @@ class MainWindow(SearchMixin, TableMixin, ExportMixin, QMainWindow):
         )
 
     def clear(self):
+        if self._busy():
+            return
         self.rows.clear()
         self.table.setRowCount(0)
         for c in self.stats.values():
@@ -364,5 +364,16 @@ class MainWindow(SearchMixin, TableMixin, ExportMixin, QMainWindow):
             self.chk_s["Google Places"].setChecked(bool(key))
 
     def _clear_cache(self):
+        if self._busy():
+            return
         CACHE.clear_all()
         self.statusBar().showMessage("Cache cleared — next search will fetch fresh data")
+
+    def closeEvent(self, event):
+        if self._busy():
+            self._close_pending = True
+            self.stop_search()
+            self.statusBar().showMessage("Stopping workers before closing...")
+            event.ignore()
+            return
+        event.accept()

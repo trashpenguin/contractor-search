@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import logging
 import re
-import time
 from urllib.parse import quote_plus, unquote_plus
 
 from compat import HAS_SCRAPLING, Adaptor, StealthySession
 from constants import TRADE_KW
+from http_client import SearchCancelled, check_cancelled, interruptible_sleep
 from models import Contractor
 from proxy import PROXY_MGR
 
@@ -118,12 +118,12 @@ def scrape_google_search(trade: str, location: str, limit: int) -> list[Contract
     the scraper before returning. Restarts session with a new proxy on
     connection failures (ERR_PROXY_CONNECTION_FAILED etc.).
     """
+    check_cancelled()
     if not HAS_SCRAPLING:
-        return []
+        raise RuntimeError("Google Search requires Scrapling browser dependencies")
 
     query_terms: list[str] = TRADE_KW[trade].get("gsearch", [TRADE_KW[trade]["google"]])
-    seen_phones: set[str] = set()
-    seen_names: set[str] = set()
+    seen_records: set[tuple] = set()
     out: list[Contractor] = []
 
     terms_todo = list(query_terms)
@@ -157,6 +157,8 @@ def scrape_google_search(trade: str, location: str, limit: int) -> list[Contract
                             html = resp.body or ""
                             if isinstance(html, bytes):
                                 html = html.decode("utf-8", errors="ignore")
+                        except SearchCancelled:
+                            raise
                         except Exception as e:
                             if proxy_url and PROXY_MGR.ready and _is_proxy_error(e):
                                 PROXY_MGR.mark_bad(proxy_url, "dead")
@@ -200,28 +202,28 @@ def scrape_google_search(trade: str, location: str, limit: int) -> list[Contract
                             if len(out) >= limit:
                                 break
                             c.trade = trade
+                            c.discovery_url = url
                             norm_name = re.sub(r"[^a-z0-9]", "", c.name.lower())
                             phone_key = re.sub(r"[^0-9]", "", c.phone)[-10:] if c.phone else ""
-                            if phone_key and phone_key in seen_phones:
+                            address_key = re.sub(r"[^a-z0-9]", "", c.address.lower())
+                            identity = (norm_name, phone_key, address_key)
+                            if identity in seen_records:
                                 continue
-                            if norm_name and norm_name in seen_names:
-                                continue
-                            if phone_key:
-                                seen_phones.add(phone_key)
-                            if norm_name:
-                                seen_names.add(norm_name)
+                            seen_records.add(identity)
                             out.append(c)
                             new += 1
 
                         logger.info(f"[GSearch] {trade}: +{new} new (total {len(out)})")
                         if page_num < _PAGES_PER_QUERY - 1:
-                            time.sleep(1.5)
+                            interruptible_sleep(1.5)
 
                     if term_done:
                         terms_todo.pop(0)
                         if terms_todo and not need_new_session:
-                            time.sleep(1.5)
+                            interruptible_sleep(1.5)
 
+        except SearchCancelled:
+            raise
         except Exception as e:
             logger.info(f"[GSearch] {trade}: session error: {type(e).__name__}: {e}")
             if proxy_url and PROXY_MGR.ready and _is_proxy_error(e):
@@ -231,5 +233,7 @@ def scrape_google_search(trade: str, location: str, limit: int) -> list[Contract
         if not need_new_session or not PROXY_MGR.ready:
             break
 
+    if rate_limited and not out:
+        raise RuntimeError("Google Search was rate limited")
     logger.info(f"[GSearch] {trade}: {len(out)} total")
     return out[:limit]

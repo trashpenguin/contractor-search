@@ -1,555 +1,117 @@
-# Contractor Finder v3.4
+# Contractor Finder
 
-Professional desktop application for finding contractors (HVAC, Electrical, Excavating) across USA locations. Aggregates data from OpenStreetMap, YellowPages, Yelp, and Google Maps, then enriches results with phone numbers, emails, and websites via a fully async pipeline.
+A Python desktop app for discovering US contractors, collecting public contact
+details, checking email domains, and exporting results. Sources include
+OpenStreetMap, YellowPages, Yelp, Google Maps, Google Search, and Google Places.
 
-![Python Version](https://img.shields.io/badge/python-3.9+-blue.svg)
-![License](https://img.shields.io/badge/license-MIT-green.svg)
-![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)
+## Install and launch
 
----
-
-## Quick Start
-
-**Windows (no setup needed):**
+Use Python 3.11 or later. The dependency versions in `requirements.txt` are
+pinned and tested in CI.
 
 ```bash
 git clone https://github.com/trashpenguin/contractor-search.git
 cd contractor-search
-```
-
-Then double-click **`launch_windows.bat`** — it installs all dependencies, downloads the browser engines, and launches the app automatically.
-
-**Mac / Linux:**
-
-```bash
-git clone https://github.com/trashpenguin/contractor-search.git
-cd contractor-search
-pip install -r requirements.txt
-python -m playwright install chromium
-python -m patchright install chromium
+python -m pip install -r requirements.txt
 python contractor_gui.py
 ```
 
-> **Requirements:** Python 3.9+ must be installed. Everything else is handled automatically.
-
----
-
-## About
-
-**Contractor Finder** is a PySide6 desktop application that automates the full contractor discovery workflow:
-
-1. **Discover** — Searches OSM, YellowPages, Yelp, and Google Maps simultaneously
-2. **Enrich** — Finds and scrapes each contractor's website for phone numbers and emails
-3. **Verify** — Validates emails via MX record checks and detects role accounts
-4. **Export** — Save results as CSV, TXT, or import into Google Sheets
-
-Built with Scrapling stealth browser automation, a rate-aware DDG pipeline, and a fully async enrichment system that processes up to 15 websites concurrently. All data is cached in SQLite to avoid redundant lookups.
-
----
-
-## Features
-
-- Multi-source scraping: OSM (Overpass + Nominatim), YellowPages, Yelp (3-phase), Google Maps (scroll + JS blob)
-- Async enrichment pipeline — batches of 15 concurrent website scrapes
-- Smart deduplication with data merging across sources
-- SQLite caching — 7-day contacts TTL, 1-day DDG TTL (empty results cached too)
-- Opt-in proxy rotation (proxifly + 5 other free lists) with health scoring and instant circuit-break on timeout
-- Domain guessing engine — 11 patterns including `.net` and trade-suffix variants, zero rate limits
-- 4-strategy deep email hunt: JS file scan, sitemap crawl, WHOIS lookup, DDG snippet search (extracted to `email_hunter.py`)
-- Guessed emails tagged separately (gold "~" indicator) so they're distinguishable from scraped emails
-- Cloudflare `data-cfemail` obfuscation decode
-- Role account detection (`info@`, `contact@`, etc.)
-- Email MX-based verification
-- Lead-gen / aggregator domain blocklist (buildzoom, myhomequote, birdeye, houzz, etc.)
-- Dark-themed desktop UI — live stats per trade, trade/source/name filters
-- **Quality score** — each result scored 0–3 (phone + email + website); table sorted by score so complete records float to top
-- **Hide Incomplete** checkbox — one click filters out results missing phone, email, and website simultaneously
-- Per-source status badges (OSM / YellowPages / Yelp / Google) update live during search
-- Live elapsed timer with 5-minute warning when search is taking longer than expected
-- Location input validation with descriptive error messages
-- Progress bar monotonically increases across all trades (never jumps backward)
-- Filter resets automatically on each new search
-- Search history (last 20 locations)
-- Google Sheets export support
-- HTTP retry with exponential backoff (2 retries, 1 s / 2 s delays) for transient network errors
-- Opt-in JSON structured logging via `LOG_FORMAT=json` env var
-- All tunable constants exposed as environment variables (see [Configuration](#configuration-env-vars))
-
----
-
-## Supported Sources
-
-| Source | Method | Notes |
-| --- | --- | --- |
-| OpenStreetMap | Overpass API POST + Nominatim fallback | Broadest coverage for obscure businesses |
-| YellowPages | StealthySession — multi-page with auto retry | Cloudflare 530 handled with 30s backoff |
-| Yelp | 3-phase: curl_cffi → StealthySession → DDG fallback | Phase 3 harvests contractor websites directly from DDG results |
-| Google Maps | StealthySession with `page_action` scroll (10×) | Geocoded lat/lon for city-level zoom; extracts from JS blob + feed cards + place URLs |
-| DuckDuckGo | HTML endpoint — rate-limited, cached | Used for website discovery and email hunting; capped at 8 lookups per trade |
-
----
-
-## Requirements
-
-- Python 3.9+
-
-```bash
-pip install -r requirements.txt
-```
-
-### requirements.txt
-
-```text
-scrapling        # stealth browser automation
-browserforge     # browser fingerprint generation
-curl_cffi        # curl impersonation (TLS/JA3 fingerprint bypass)
-playwright       # browser automation backend
-patchright       # patched Playwright variant
-PySide6          # Qt6 desktop UI framework
-dnspython        # DNS/MX record resolution
-msgspec          # fast JSON serialization
-aiohttp          # async HTTP with connection pooling
-python-whois     # WHOIS registrant email lookup (email deep-hunt strategy C)
-```
-
----
-
-## Installation
-
-```bash
-git clone https://github.com/yourusername/contractor-finder.git
-cd contractor-finder
-pip install -r requirements.txt
-python -m playwright install chromium
-python -m patchright install chromium
-python contractor_gui.py
-```
-
-**Windows:** Double-click `launch_windows.bat` — handles pip install, browser setup, and launch automatically.
-
----
-
-## Usage
-
-### Basic Search
-
-1. Enter a US city, state, or ZIP code (e.g. `Warren, MI 48091`)
-2. Select trades: HVAC, Electrical, Excavating (any combination)
-3. Select sources: OSM, YellowPages, Yelp, Google
-4. Set search radius and per-source limit
-5. Enable **Scrape websites** (recommended) for phone + email enrichment
-6. Optionally enable **Use Proxy** to rotate free proxies (helps if your IP is rate-limited)
-7. Click **Search Contractors ↗**
-
-Results appear live in the table. All three trades run sequentially; the filter resets to "All" automatically so every trade is visible as results arrive.
-
-### Post-Search Actions
-
-| Button | Action |
-| --- | --- |
-| ✉ Verify Emails | MX record check on all discovered emails |
-| 📊 Export → Google Sheets | Export CSV and open sheets.new |
-| Export CSV | Save to file |
-| Export TXT | Formatted report grouped by trade |
-| Filter dropdowns | Filter by trade, source, or name (live, respects results mid-search) |
-
----
-
-## Search Parameters
-
-| Parameter | Default | Notes |
-| --- | --- | --- |
-| Location | Warren, MI 48091 | Any US city, state, or ZIP |
-| Radius | 40 mi | OSM search radius |
-| Per Trade/Source | 30 | 10 / 20 / 30 / 50 / 75 / 100 |
-| Enrichment | On | Scrape websites for phone + email |
-| Use Proxy | Off | Enable if getting rate-limited |
-
----
-
-## Configuration (Env Vars)
-
-All tunable parameters can be overridden at runtime without editing source files:
-
-| Variable | Default | Description |
-| --- | --- | --- |
-| `LOG_LEVEL` | `INFO` | Python log level (`DEBUG`, `INFO`, `WARNING`) |
-| `LOG_FORMAT` | — | Set to `json` for structured JSON log output |
-| `ENRICH_BATCH_SIZE` | `15` | Contractors per async enrichment batch |
-| `DDG_CAP` | `8` | Max DDG website-lookup calls per trade |
-| `SEM_DDG` | `2` | Max concurrent DDG requests |
-| `SEM_GOOGLE` | `1` | Max concurrent Google Maps requests |
-| `SEM_YELLOWPAGES` | `2` | Max concurrent YellowPages requests |
-| `SEM_DEFAULT` | `6` | Max concurrent requests for all other targets |
-| `TTL_CONTACT` | `604800` | Contact cache TTL in seconds (7 days) |
-| `TTL_DDG` | `86400` | DDG result cache TTL in seconds (1 day) |
-
-Example:
-
-```bash
-LOG_FORMAT=json DDG_CAP=4 python contractor_gui.py
-```
-
----
-
-## Result Columns
-
-| Column | Description |
-| --- | --- |
-| Trade | HVAC / Electrical / Excavating |
-| Source | OSM / YellowPages / Yelp / Google |
-| Company Name | Business name |
-| Phone | Normalized `(XXX) XXX-XXXX` |
-| Email | Scraped, or guessed (shown in gold with `~`) |
-| Email Status | ✅ Valid / ❌ Invalid / ❓ Unknown / ~ Guessed |
-| Website | Business website |
-| Address | Street address if available |
-| Note | Role account warning (`info@`, `contact@`, etc.) |
-
----
-
-## Architecture
-
-### Module Layout
-
-```text
-contractor-search/
-├── contractor_gui.py        ← entry point (~50 lines)
-├── models.py                ← Contractor dataclass + quality_score property
-├── config.py                ← all tunable constants, overridable via env vars
-├── constants.py             ← regexes, TRADE_KW, colour maps, SKIP_DOMAINS, proxy sources
-├── compat.py                ← optional-dep detection (scrapling / aiohttp / dnspython)
-├── cache.py                 ← ContactCache (SQLite, 7d TTL) + SearchHistory
-├── proxy.py                 ← ProxyManager — opt-in, 6 sources, health scoring, circuit-break
-├── http_client.py           ← http_get (with exponential-backoff retry), stealth_get, post_bytes
-├── extractor.py             ← extract_contacts (8 strategies), verify_email, _clean_email
-├── email_hunter.py          ← deep email hunt strategies (JS scan, sitemap, WHOIS, DDG snippet)
-├── enricher.py              ← async/sync enrichment pipeline + dedup
-├── search.py                ← run_search orchestrator (per-trade DDG state)
-├── workers.py               ← SearchWorker / VerifyWorker (QThread)
-├── scrapers/
-│   ├── ddg.py               ← DuckDuckGo HTML search, rate limiter, cache
-│   ├── osm.py               ← Overpass API + Nominatim keyword fallback
-│   ├── yellowpages.py       ← StealthySession, multi-page, 530 retry + profile-page phone fetch
-│   ├── yelp.py              ← 3-phase: curl_cffi → StealthySession → DDG fallback
-│   └── google.py            ← StealthySession, page_action scroll, APP_STATE + feed + place-links
-├── gui/
-│   ├── style.py             ← STYLE CSS, COLS, VERIFY_COLORS/ICONS (guessed = gold)
-│   ├── widgets.py           ← StatCard
-│   ├── search_mixin.py      ← search lifecycle, source badges, elapsed timer
-│   ├── table_mixin.py       ← _add_row, quality-score sort, Hide Incomplete filter
-│   ├── export_mixin.py      ← CSV / TXT / Google Sheets export
-│   └── main_window.py       ← MainWindow (composes the three mixins)
-└── tests/
-    ├── test_extractor.py    ← 32 unit tests for extractor helpers
-    ├── test_enricher.py     ← 30 unit tests for enricher dedup helpers
-    ├── test_enricher_domain.py ← domain guessing tests
-    ├── test_models.py       ← Contractor dataclass tests
-    └── test_yelp_phone.py   ← Yelp phone fallback tests
-```
-
-**Dependency flow (no circular imports):**
-`models → config → constants → compat → cache → proxy → http_client → extractor → email_hunter → scrapers/* → enricher → search → workers → gui/* → contractor_gui.py`
-
-### Data Flow
-
-```text
-Search Location
-      ↓
-Geocode via Nominatim (lat/lon for city-level anchor)
-      ↓
-Per-Trade Sequential Scraping
- ├── OSM: Overpass API (nwr around radius) + Nominatim keyword search
- ├── YellowPages: StealthySession multi-page (auto-retry on Cloudflare 530)
- ├── Yelp: Phase 1 curl_cffi → Phase 2 StealthySession (__NEXT_DATA__ JSON)
- │         → Phase 3 DDG fallback (Strategy A: yelp.com/biz/ slugs,
- │                                  Strategy C: contractor websites from DDG titles)
- └── Google Maps: StealthySession + page_action scroll (10× feed panel)
-                  → APP_INITIALIZATION_STATE JS blob (phones, websites, name candidates)
-                  → div[role='feed'] aria-label cards
-                  → a[href*='/maps/place/'] place-link URL names
-      ↓
-Smart Deduplication
- ├── Name fuzzy match (suffix stripping: LLC, Inc, HVAC, heating, etc.)
- ├── Phone 10-digit normalized match
- └── Root domain match — merges missing fields from duplicates
-      ↓
-Async Enrichment Pipeline (batches of 15, DDG capped at 8 per trade)
- ├── Step 1: Domain guessing — 9 patterns (no rate limits)
- ├── Step 2: DDG website lookup — only if no website AND no phone; max 8 per trade
- ├── Step 3: Website scrape — homepage + up to 6 contact/about subpages (SQLite cache)
- │   └── 8-strategy contact extraction (JSON-LD → mailto/tel → meta → itemprop →
- │         footer scan → Cloudflare decode → obfuscation → full-text regex)
- └── Step 4: Deep email hunt (runs only when Step 3 finds nothing)
-       ├── A: JS file scan (up to 5 same-domain scripts)
-       ├── B: Sitemap crawl → contact/about pages
-       ├── C: WHOIS registrant email (python-whois)
-       └── D: DDG snippet search for "@domain.com"
-      ↓
-Email tagged "guessed" if generated by MX-pattern (Step 4 fallback prefix@domain)
-      ↓
-Display & Export
-```
-
-### Scrapling Fetcher Types
-
-| Fetcher | Used for |
-| --- | --- |
-| `Fetcher` / `http_get` (curl_cffi) | DDG search, contractor websites, Yelp Phase 1 |
-| `StealthySession` | YellowPages, Yelp Phase 2, Google Maps — persistent browser context |
-| `page_action` callback | Google Maps feed scroll (10× before HTML capture) |
-
-### Proxy Manager
-
-Opt-in (disabled by default — enable via "Use Proxy" checkbox):
-
-- **6 sources** — proxifly high-quality, proxifly HTTP, monosans, clarketm, ShiftyTR, TheSpeedX
-- **Health scoring** — starts at 5; instant score = -99 on timeout (immediate circuit-break, was 8 timeouts before)
-- **Permanent ban** — TLS/CONNECT/certificate/403 errors
-- **Sticky sessions** — up to 10 requests per proxy before rotation
-- **Bypass** — OSM/Nominatim always use direct connection
-
-### Email Extraction (8 Strategies)
-
-| # | Strategy |
-| --- | --- |
-| 1 | JSON-LD / schema.org (highest reliability) |
-| 2 | `mailto:` / `tel:` links |
-| 3 | Meta tags (`name="email"`, `property="email"`) |
-| 4 | Structured data attributes (`itemprop`, `data-email`) |
-| 5 | Footer / contact section scan |
-| 6 | Cloudflare `data-cfemail` XOR decode |
-| 7 | Obfuscation patterns (`[at]`, `(at)`, `AT`, `@` with spaces) |
-| 8 | Full-text regex fallback |
-
-### Domain Blocklist
-
-Lead-gen and aggregator sites are filtered from results and never scraped:
-
-`yelp.com`, `yellowpages.com`, `bbb.org`, `buildzoom.com`, `threebestrated.com`, `todayshomeowner.com`, `birdeye.com`, `houzz.com`, `myhomequote.com`, `expertise.com`, `homeguide.com`, `porch.com`, `bark.com`, `improvenet.com`, `networx.com` + social/maps platforms
-
----
-
-## Performance
-
-| Search | Approx Time | Approx Results |
-| --- | --- | --- |
-| 1 trade, no enrichment | 1–2 min | ~90 |
-| 1 trade, enrichment on | 2–3 min | ~90 |
-| 3 trades, all sources, enrichment | 8–12 min | ~250–350 |
-
-*Tested on Warren, MI 48091, 40 mi radius, all sources enabled.*
-
-Google Maps now returns ~30 results per trade (up from ~12 before scroll was fixed).
-
----
-
-## Cache Locations
-
-```text
-Windows:   C:\Users\[USERNAME]\.contractor_finder_cache.db
-Linux/Mac: ~/.contractor_finder_cache.db
-```
-
-Search history:
-
-```text
-Windows:   C:\Users\[USERNAME]\.contractor_search_history.json
-Linux/Mac: ~/.contractor_search_history.json
-```
-
----
-
-## Troubleshooting
-
-### Only HVAC shows in results
-
-The filter auto-resets on each new search (fixed in latest version). If you changed the filter mid-search, switch it back to "All" — all trades are stored in memory and will reappear.
-
-### No results from Yelp
-
-Yelp search pages return 403. The 3-phase fallback handles this automatically — Phase 3 (DDG) finds contractor websites directly. Results are cached for 24 hours per trade.
-
-### YellowPages shows 530
-
-Normal Cloudflare challenge. The scraper auto-retries with a 30-second backoff; the log will show `[YP] Attempt N got 0 results, retrying...`.
-
-### Search takes too long / DDG rate limiting
-
-DDG lookups are capped at 8 per trade and empty results are cached, so repeated searches for the same location are much faster. If still slow, reduce Per Trade/Source limit or disable enrichment for the first run.
-
-### Missing browser engines
+On Windows, `launch_windows.bat` automates installation and launch.
+The first launch downloads Chromium for Playwright and Patchright. To install
+the browser engines manually:
 
 ```bash
 python -m playwright install chromium
 python -m patchright install chromium
 ```
 
-### Proxy pool empty
+Linux may also require Chromium and Qt system libraries. Google Places requires
+your own API key with the appropriate API enabled; review billing and quotas in
+Google Cloud before selecting that source.
 
-Expected — proxy is opt-in and off by default. Enable "Use Proxy" only if your IP is being rate-limited by a specific source.
+## Search and verify
 
----
+1. Enter a US city/state or ZIP code.
+2. Select trades, sources, radius, and the result limit per trade/source.
+3. Enable website enrichment to collect additional phone numbers and emails.
+4. Click Search. Use Stop to cancel and retain results already displayed.
+5. Filter results by trade, source, name, or contact completeness.
+6. Verify Emails to check syntax and DNS mail records.
 
-## Modifying Trade Keywords
+Sources run sequentially for each trade; website enrichment runs concurrently.
+The radius selector uses miles and converts to meters. OSM's Overpass query and
+Nominatim fallback respect this radius. Other providers use location or bias
+controls and may return businesses outside the selected radius.
 
-Edit `TRADE_KW` in `constants.py`:
+Guessed websites require a matching business name plus phone or address
+evidence. Conflicting phone numbers or addresses prevent duplicate records
+from merging. A complete contact record scores up to three points (phone,
+email, website); that score measures completeness, not verified accuracy.
 
-```python
-TRADE_KW = {
-    "HVAC": {
-        "osm":    ["heating", "hvac", "furnace", "cooling", "air conditioning"],
-        "yp":     "hvac+heating+cooling+contractor",
-        "google": "HVAC contractor",
-        "yelp":   "hvac",
-    },
-    ...
-}
+Email origin and verification are separate. **Guessed** emails remain labeled
+after verification. A valid mail domain does not prove that the mailbox exists.
+Sources, discovery timestamps, contact URLs, acquisition methods, and confidence
+are retained for review. Provider pages can change or block access; failed or
+partial searches are reported in the interface.
+
+Search and email verification cannot overlap. Stop cancels queued enrichment
+and retry delays; an active synchronous HTTP or browser request may need to
+finish its timeout. Closing waits for active workers to finish.
+
+## Export
+
+- **Export CSV:** one contractor per row, including provenance and verification.
+- **Export Board CSV:** trade groups and board columns, plus provenance fields.
+- **Export TXT:** a readable report with email status and source information.
+- **Google Sheets:** creates a board CSV and shows manual import instructions.
+
+Exports include all collected rows. CSV saves write to a temporary file and
+replace the destination atomically, preserving an existing file if saving fails.
+
+Settings, search history, the SQLite cache, and rotating logs are stored under
+your user profile. Clear Cache removes cached search and contact results.
+Proxy use is optional and off by default; TLS certificate checks remain enabled.
+
+## Development and Windows builds
+
+```bash
+python -m pip install -r requirements.txt -r requirements-dev.txt
+black --check .
+isort --check-only .
+flake8 .
 ```
 
-Each trade has separate keyword sets per source.
+Run tests with Qt's offscreen platform:
 
----
+```bash
+QT_QPA_PLATFORM=offscreen pytest tests/ -v
+```
 
-## Release Notes
+In PowerShell:
 
-### v3.4 — Current
+```powershell
+$env:QT_QPA_PLATFORM = "offscreen"
+python -m pytest tests/ -v
+```
 
-#### New features
+Tests use real Qt, HTML parser, and HTTP dependencies with controlled network
+fixtures. CI also starts the source GUI, installs and launches both Chromium
+engines on Windows, builds with PyInstaller, and starts the frozen application.
+`--smoke-test` checks runtime dependencies, skips browser installation, and
+closes the GUI automatically.
 
-- **Quality score** — `Contractor.quality_score` property (0–3: phone + email + website). Table is sorted by score on every update so complete records always float to the top.
-- **Hide Incomplete checkbox** — filters the table to show only contractors that have at least one of phone, email, or website; updates live without re-running the search.
-- **Expanded domain guessing** — 11 patterns now, adding `.net` variants and trade-suffix candidates (e.g. `smithhvac.com`). Smarter DDG fallback query avoids generic listicle pages.
-- **YellowPages profile-page phone recovery** — for listings that return no phone in the search results, the scraper now fetches the YP profile page to recover direct-dial numbers.
-- **Yelp phone fallbacks** — `primaryPhone` and `formattedPhone` fields in `__NEXT_DATA__` JSON are tried before falling back to regex.
-- **HTTP retry with exponential backoff** — `http_get` retries up to 2 times on transient errors (1 s then 2 s delay), reducing spurious empty results.
-- **JSON structured logging** — set `LOG_FORMAT=json` to get machine-readable log lines (useful for log aggregators / CI).
-- **Env-var configuration** — all tunable constants (`DDG_CAP`, `SEM_*`, `TTL_*`, `ENRICH_BATCH_SIZE`) moved to `config.py` and overridable at runtime without editing code.
+```bash
+python -m pip install -r requirements-build.txt
+pyinstaller ContractorFinder.spec --clean --noconfirm
+```
 
-#### Architecture changes
+The Windows executable is `dist/ContractorFinder/ContractorFinder.exe`.
+Download the complete `ContractorFinder-Windows` artifact from a successful
+GitHub Actions run and keep its supporting files beside the executable.
 
-- **`email_hunter.py`** extracted from `enricher.py` — the four deep-hunt strategies (JS scan, sitemap crawl, WHOIS, DDG snippet) are now self-contained functions in their own module.
-- **`config.py`** added — single source of truth for all numeric/string tunables; all other modules import from here instead of duplicating constants.
-- **`main_window.py` split into mixins** — `SearchMixin`, `TableMixin`, and `ExportMixin` each own a focused slice of the UI logic; `MainWindow` composes them.
+## Configuration
 
-#### Testing & CI
-
-- 62+ unit tests added across `test_extractor.py`, `test_enricher.py`, `test_enricher_domain.py`, `test_models.py`, and `test_yelp_phone.py`.
-- GitHub Actions CI workflow runs `flake8` lint and the full test suite on every push.
-
----
-
-### v3.3
-
-#### UI improvements
-
-- **Per-source status badges** — strip below the progress bar shows OSM / YellowPages / Yelp / Google status live: `—` idle → `⏳` running → `✓ N` with result count → `✗` on error. Counts accumulate across all trades so the badge always shows the running total.
-- **Live elapsed timer** — `⏱ M:SS` counter in the top-right of the search panel. Turns amber and shows a status bar warning after 5 minutes (normal for 3-trade searches with enrichment).
-- **Location validation** — rejects empty input, inputs under 3 characters, and inputs with no letters, with specific error messages before any search is started.
-- **Progress bar never goes backward** — each trade now owns a proportional slice of the 0–100% bar (40% scraping / 60% enrichment within each trade's slice), so the bar is monotonically increasing even with 3 trades.
-- **Source badges show `⏳` on every trade** — not just the first time a source fires. On trade 2+ the badge shows `⏳ 15` (spinner + prior count) while active.
-
-#### Bug fixes
-
-- **OSM wrong-trade results** — `shop` / `craft` / `trade` tag filters in the Overpass query were hardcoded to include all trade keywords regardless of which trade was being searched. Now uses the per-trade `regex` variable already built from `TRADE_KW[trade]["osm"]`.
-- **Yelp state code false match** — `"mi" in location.lower()` matched "Miami, FL" and returned the wrong state code. Fixed with `re.search(r'\b([A-Z]{2})\b', location.upper())` for whole-word extraction.
-- **DDG fallback query biased toward HVAC** — the third DDG query in the Yelp fallback had `"heating cooling"` hardcoded for all trades. Replaced with the plain trade keyword.
-- **Yelp listicle names** — DDG Strategy C was keeping article titles like "10 Best HVAC Services in Warren" and "Top-Rated HVAC Experts in..." as business names. New `_is_listicle_name()` filter rejects those patterns. DDG query 2 also changed from `"best {kw} ..."` to `"{kw} company ..."` to avoid pulling listicle pages.
-- **Proxy index out-of-bounds** — `_get_next()` returned `None` when `_cur_idx` grew larger than the active pool after proxies were removed. Fixed by clamping with `% len(active)` before use.
-- **Silent cache failures** — all `except Exception: pass` blocks in `cache.py` replaced with `logger.warning(...)` so DB errors are no longer invisible.
-- **Double URL-decode on emails** — `_clean_email()` already calls `unquote()` internally; the extra `_uq()` call in `search.py` was decoding a second time. Removed.
-- **Hardcoded Michigan domain candidate** — `enricher.py` was injecting `f"https://www.{name}michigan.com"` as a domain guess regardless of location. Removed.
-- **`city_c` regex dropped digits** — domain-guessing regex `[^a-z]` stripped digits from city names like "warren48" → fixed to `[^a-z0-9]`.
-- **Google Maps narrow name window** — extended the extraction window around a phone number match from ±300 to ±900 characters to capture names further from the phone.
-- **`compat.py` silent missing deps** — missing `aiohttp` / `dnspython` now emit `logger.warning()` instead of silently falling back.
-
-### v3.2
-
-#### Scraper improvements
-
-- Google Maps: URL now uses geocoded lat/lon at zoom-12 (was defaulting to Pacific Ocean zoom-3); `page_action` scroll triggers lazy-loading of 30+ results (was ~12)
-- Google Maps: 3-layer extraction — APP_INITIALIZATION_STATE JS blob, `div[role='feed']` aria-label cards, `a[href*='/maps/place/']` place-link URLs
-- Yelp: full 3-phase system — curl_cffi (`__NEXT_DATA__` JSON) → StealthySession → DDG fallback with Strategy A (yelp.com/biz/ slugs) and Strategy C (contractor websites harvested directly from DDG results)
-- YellowPages: auto-retry on Cloudflare 530 with 30s backoff
-
-#### Enrichment improvements
-
-- 4-strategy deep email hunt added: JS file scan, sitemap crawl, WHOIS registrant lookup, DDG snippet search
-- Guessed emails (MX-pattern prefix@domain) tagged `email_status="guessed"` and displayed in gold with `~` icon
-- DDG website lookup now capped at 8 per trade total (shared across all 15-contractor batches) — prevents 30+ DDG calls per trade that blocked Electrical and Excavating from running
-- Empty DDG results cached so the same no-result query isn't retried on the next run
-- JS file scanner capped at 5 same-domain scripts per site (was downloading 13+ on WordPress sites)
-- `_clean_email()` now URL-decodes before stripping (fixes `%20%20foo@bar.com` entries from cache)
-- Async DDG enrichment uses full location string instead of hardcoded "Michigan"
-- `scrape_website()` sync fallback now uses the same `SCRAPE_SKIP` set as the async path
-
-#### Proxy
-
-- Proxy is now opt-in (off by default) — "Use Proxy" checkbox in UI
-- Timeout now sets score = -99 (immediate circuit-break); was -2 per timeout requiring 8 hits to remove
-- 6 proxy sources: proxifly (quality + HTTP), monosans, clarketm, ShiftyTR, TheSpeedX
-
-#### Domain filtering
-
-- 15+ lead-gen / aggregator domains added to `SKIP_DOMAINS` and `SCRAPE_SKIP`: buildzoom, threebestrated, todayshomeowner, birdeye, houzz, cozywise, expertise, myhomequote, improvenet, networx, porch, bark, homeguide, fixr
-
-#### GUI fixes
-
-- Filter (trade/source/name) resets to "All" automatically on every new search
-- `_add_row` now respects the active filter — rows from non-matching trades go to `self.rows` but stay hidden until the filter is broadened
-- Double-start guard — pressing Enter in the location box while a search is running no longer clears results and restarts
-
-#### Dependencies
-
-- `python-whois` added to `requirements.txt` and `launch_windows.bat`
-
-#### Codebase
-
-- Refactored from 2,271-line monolith into 18 focused modules (`scrapers/`, `gui/`, core modules)
-
-### v3.1
-
-- Async enrichment pipeline (batches of 15)
-- StealthySession for YP, Yelp, Google Maps
-- Elite proxy pool with health scoring + circuit breakers + sticky sessions
-- Cloudflare `data-cfemail` decode
-- Role account detection
-- Search history (last 20 locations)
-- SQLite cache with 7-day / 1-day TTL
-- 8-strategy contact extraction
-- Domain guessing engine
-- Email MX verification (SMTP removed — unreliable in 2026)
-- Nominatim fallback for OSM
-- Smart dedup with name/phone/domain merging
-
-### v2.x
-
-- Google Maps integration, email MX verification, proxy rotation, website enrichment
-
-### v1.x
-
-- Basic OSM + YellowPages scraping, CSV/TXT export
-
----
-
-## Legal & Ethical Use
-
-This tool is intended for legitimate business research only. Respect website rate limits, comply with Terms of Service, and use responsibly.
-
----
-
-## Acknowledgments
-
-- [Scrapling](https://github.com/D4Vinci/Scrapling) — stealth browser automation
-- [OpenStreetMap](https://www.openstreetmap.org/) — Overpass API & Nominatim
-- [PySide6](https://doc.qt.io/qtforpython/) — Qt6 desktop UI
-- [aiohttp](https://docs.aiohttp.org/) — async HTTP client
-- [dnspython](https://www.dnspython.org/) — DNS/MX resolution
-- [Playwright](https://playwright.dev/) & [Patchright](https://github.com/Kaliiiiiiiiii-Vinyzu/patchright) — browser automation backends
-- [browserforge](https://github.com/daijro/browserforge) — browser fingerprint generation
-
----
-
-## Support
-
-Open an issue on GitHub for bug reports or feature requests.
+Environment variables include `LOG_LEVEL`, `LOG_FORMAT=json`,
+`ENRICH_BATCH_SIZE=15`, `DDG_CAP=30`, `SEM_DDG=2`, `SEM_GOOGLE=1`,
+`SEM_YELLOWPAGES=2`, `SEM_DEFAULT=6`, `TTL_CONTACT=604800`, and
+`TTL_DDG=86400`. Batch size and semaphore limits must be positive.

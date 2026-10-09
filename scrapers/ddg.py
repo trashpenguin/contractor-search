@@ -6,7 +6,7 @@ import time
 
 from cache import CACHE
 from compat import HAS_SCRAPLING, Adaptor
-from http_client import http_get
+from http_client import SearchCancelled, check_cancelled, http_get, interruptible_sleep
 
 logger = logging.getLogger("ContractorFinder")
 
@@ -22,6 +22,8 @@ def _ddg_decode(href: str) -> str:
             from urllib.parse import unquote
 
             return unquote(href.split("uddg=")[1].split("&")[0])
+        except SearchCancelled:
+            raise
         except Exception:
             pass
     return href
@@ -37,11 +39,11 @@ def _ddg_rate_limit():
             wait = 65 - (now - _DDG_REQ_TIMES[0])
             if wait > 0:
                 logger.debug(f"[DDG] Rate limit pause: {wait:.0f}s")
-                time.sleep(wait)
+                interruptible_sleep(wait)
         if _DDG_REQ_TIMES:
             gap = time.time() - _DDG_REQ_TIMES[-1]
             if gap < 1.5:
-                time.sleep(1.5 - gap)
+                interruptible_sleep(1.5 - gap)
         _DDG_REQ_TIMES.append(time.time())
 
 
@@ -50,6 +52,7 @@ def ddg_search(query: str, pages: int = 2) -> list[tuple[str, str, str]]:
     Search DuckDuckGo HTML endpoint. Rate-limited. Results cached for 24h.
     Returns list of (title, real_url, snippet).
     """
+    check_cancelled()
     cached = CACHE.get_ddg(query)
     if cached is not None:
         return [tuple(r) for r in cached]
@@ -64,7 +67,7 @@ def ddg_search(query: str, pages: int = 2) -> list[tuple[str, str, str]]:
             break
         if len(html) < 200:
             logger.debug("[DDG] Rate-limited (short response), backing off 20s")
-            time.sleep(20)
+            interruptible_sleep(20)
             break
         page = Adaptor(html)
         found = 0

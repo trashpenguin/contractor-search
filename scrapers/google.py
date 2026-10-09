@@ -6,6 +6,7 @@ from urllib.parse import quote_plus, unquote_plus
 
 from compat import HAS_SCRAPLING, Adaptor, StealthySession
 from constants import ADDR_RE, PHONE_RE, TRADE_KW
+from http_client import SearchCancelled, check_cancelled
 from models import Contractor
 
 logger = logging.getLogger("ContractorFinder")
@@ -220,12 +221,13 @@ def scrape_google(
 
     Scroll: attempted via the Playwright page handle if accessible.
     """
+    check_cancelled()
     out: list[Contractor] = []
     if not HAS_SCRAPLING:
-        return out
+        raise RuntimeError("Browser scraping dependencies are unavailable")
 
     term = quote_plus(f"{TRADE_KW[trade]['google']} near {location}")
-    if lat and lon:
+    if lat is not None and lon is not None:
         # City-level zoom (12) centred on the geocoded coordinates
         url = f"https://www.google.com/maps/search/{term}/@{lat},{lon},12z?hl=en"
     else:
@@ -241,9 +243,10 @@ def scrape_google(
                 )
                 raw = resp.body or b""
                 html = raw.decode("utf-8", errors="ignore") if isinstance(raw, bytes) else raw
+            except SearchCancelled:
+                raise
             except Exception as e:
-                logger.warning(f"[Google] Load error: {type(e).__name__}")
-                return out
+                raise RuntimeError("Google Maps browser request failed") from e
 
             if not html:
                 return out
@@ -268,16 +271,10 @@ def scrape_google(
             logger.info(f"[Google] {trade}: {len(entries)} entries from feed/place-links")
 
             # Supplement entries with JS blob data
-            phone_pool = list(js_phones)
-            website_pool = list(js_websites)
 
             for i, entry in enumerate(entries[:limit]):
                 phone = entry.get("phone", "")
                 website = entry.get("website", "")
-                if not phone and i < len(phone_pool):
-                    phone = phone_pool[i]
-                if not website and website_pool:
-                    website = website_pool.pop(0)
                 out.append(
                     Contractor(
                         trade=trade,
@@ -286,6 +283,7 @@ def scrape_google(
                         website=website,
                         address=entry.get("address", ""),
                         source="Google",
+                        discovery_url=url,
                     )
                 )
 
@@ -296,8 +294,8 @@ def scrape_google(
                     if name in seen_names:
                         continue
                     seen_names.add(name)
-                    p = phone_pool.pop(0) if phone_pool else ""
-                    w = website_pool.pop(0) if website_pool else ""
+                    p = ""
+                    w = ""
                     out.append(
                         Contractor(
                             trade=trade,
@@ -308,8 +306,12 @@ def scrape_google(
                         )
                     )
 
+    except SearchCancelled:
+        raise
     except Exception as e:
         logger.error(f"[Google] Session error: {type(e).__name__}: {e}")
+        if not out:
+            raise RuntimeError("Google Maps source failed") from e
 
     logger.info(f"[Google] {trade}: {len(out)} results")
     return out[:limit]

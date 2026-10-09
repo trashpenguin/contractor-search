@@ -6,7 +6,8 @@ import re
 from urllib.parse import quote_plus
 
 from constants import OVERPASS_EPS, TRADE_KW
-from http_client import http_get, post_bytes
+from http_client import SearchCancelled, check_cancelled, http_get, interruptible_sleep, post_bytes
+from location import distance_m
 from models import Contractor
 
 logger = logging.getLogger("ContractorFinder")
@@ -65,6 +66,8 @@ def scrape_osm(trade: str, lat: float, lon: float, radius_m: int, limit: int) ->
 
     # Nominatim keyword search for broader coverage
     for kword in kw[:3]:
+        check_cancelled()
+        interruptible_sleep(1.1)
         if len(elements) >= limit * 3:
             break
         try:
@@ -78,6 +81,8 @@ def scrape_osm(trade: str, lat: float, lon: float, radius_m: int, limit: int) ->
             if nm_html:
                 places = json.loads(nm_html)
                 for p in places:
+                    if distance_m(lat, lon, float(p["lat"]), float(p["lon"])) > radius_m:
+                        continue
                     name = (p.get("name") or "").strip()
                     if not name:
                         continue
@@ -122,6 +127,8 @@ def scrape_osm(trade: str, lat: float, lon: float, radius_m: int, limit: int) ->
                             },
                         }
                     )
+        except SearchCancelled:
+            raise
         except Exception:
             pass
 
@@ -158,6 +165,11 @@ def scrape_osm(trade: str, lat: float, lon: float, radius_m: int, limit: int) ->
                 address=addr,
                 source="OSM",
                 place_id=pid,
+                discovery_url=(
+                    f"https://www.openstreetmap.org/{el.get('type')}/{el.get('id')}"
+                    if el.get("type") in {"node", "way", "relation"}
+                    else f"https://www.openstreetmap.org/search?query={quote_plus(name)}"
+                ),
             )
         )
         if len(out) >= limit:

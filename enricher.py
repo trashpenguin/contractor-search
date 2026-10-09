@@ -6,13 +6,14 @@ import re
 from urllib.parse import quote_plus, urljoin, urlparse
 
 from cache import CACHE
-from compat import HAS_AIOHTTP, HAS_DNS, HAS_SCRAPLING, Adaptor
+from compat import HAS_AIOHTTP, HAS_SCRAPLING, Adaptor
 from config import DDG_CAP, SEM_DDG, SEM_DEFAULT, SEM_GOOGLE, SEM_YELLOWPAGES
 from constants import _FATAL_PROXY_ERRORS, SCRAPE_SKIP, SKIP_DOMAINS, TRADE_KW
 from email_hunter import _ddg_email_hunt, _scan_js_for_email, _scan_sitemap_for_email, _whois_email
-from extractor import _clean_email, _ok_email, extract_contacts
-from http_client import http_get
+from extractor import _clean_email, _ok_email, extract_contacts, verify_email
+from http_client import SearchCancelled, call_with_stop, http_get
 from models import Contractor
+from provenance import record_contact
 from proxy import PROXY_MGR
 
 logger = logging.getLogger("ContractorFinder")
@@ -104,38 +105,75 @@ def _build_domain_candidates(clean_name: str, clean_city: str, trade_suffix: str
     return base
 
 
-def dedup(rows: list[Contractor]) -> list[Contractor]:
-    """
-    Smart dedup using name similarity + phone + domain.
-    Merges data from duplicates (keeps best record, fills missing fields).
-    """
-    sorted_rows = sorted(
-        rows,
-        key=lambda r: -(bool(r.phone) * 2 + bool(r.email) * 3 + bool(r.website) * 2),
+def _address_key(address: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", address.lower())
+
+
+def _same_business(left: Contractor, right: Contractor) -> bool:
+    lp, rp = _phone_key(left.phone), _phone_key(right.phone)
+    la, ra = _address_key(left.address), _address_key(right.address)
+    if lp and rp and lp != rp:
+        return False
+    if la and ra and la != ra:
+        return False
+    if left.place_id and left.place_id == right.place_id:
+        return True
+    phone_match = bool(lp and lp == rp)
+    domain_match = bool(
+        _domain_key(left.website) and _domain_key(left.website) == _domain_key(right.website)
     )
+    address_match = bool(la and la == ra)
+    exact_name = re.sub(r"[^a-z0-9]", "", left.name.lower()) == re.sub(
+        r"[^a-z0-9]", "", right.name.lower()
+    )
+    return bool(
+        phone_match
+        or domain_match
+        or (address_match and _similar(left.name, right.name))
+        or (exact_name and left.name.strip())
+    )
+
+
+def dedup(rows: list[Contractor]) -> list[Contractor]:
+    """Merge corroborated identities without discarding conflicting branches."""
+    sorted_rows = sorted(rows, key=lambda r: -r.quality_score)
     out: list[Contractor] = []
-    for r in sorted_rows:
-        is_dup = False
-        r_phone = _phone_key(r.phone)
-        r_domain = _domain_key(r.website)
-        for ex in out:
-            name_match = _similar(r.name, ex.name)
-            phone_match = bool(r_phone and r_phone == _phone_key(ex.phone))
-            domain_match = bool(r_domain and r_domain == _domain_key(ex.website))
-            if name_match or phone_match or domain_match:
-                if not ex.phone and r.phone:
-                    ex.phone = r.phone
-                if not ex.email and r.email:
-                    ex.email = r.email
-                if not ex.website and r.website:
-                    ex.website = r.website
-                if not ex.address and r.address:
-                    ex.address = r.address
-                is_dup = True
-                break
-        if not is_dup:
-            out.append(r)
+    for row in sorted_rows:
+        existing = next((item for item in out if _same_business(row, item)), None)
+        if existing is None:
+            out.append(row)
+            continue
+        for field in ("phone", "email", "website", "address"):
+            if not getattr(existing, field) and getattr(row, field):
+                setattr(existing, field, getattr(row, field))
+                related = {
+                    "email": ("email_method", "email_source_url", "email_status"),
+                    "phone": ("phone_source_url",),
+                    "website": ("website_method",),
+                }.get(field, ())
+                for key in related:
+                    setattr(existing, key, getattr(row, key))
     return out
+
+
+def website_matches(contractor: Contractor, html: str) -> bool:
+    """Require a business name plus phone or location evidence before guessing."""
+    text = re.sub(r"<[^>]*>", " ", html).lower()
+    words = [
+        word
+        for word in re.findall(r"[a-z0-9]+", contractor.name.lower())
+        if word not in {"llc", "inc", "co", "corp", "company", "the", "and"}
+    ]
+    if not words or not all(word in text for word in words):
+        return False
+    _, phone = extract_contacts(html)
+    if _phone_key(contractor.phone) and _phone_key(contractor.phone) == _phone_key(phone):
+        return True
+    address_words = re.findall(r"[a-z0-9]+", contractor.address.lower())
+    return bool(
+        any(word.isdigit() and word in text for word in address_words)
+        and sum(word in text for word in address_words if len(word) >= 4) >= 2
+    )
 
 
 # ── Async website scraping ────────────────────────────────────────────────────
@@ -144,10 +182,10 @@ def dedup(rows: list[Contractor]) -> list[Contractor]:
 async def _fetch_one(session, url: str, timeout, use_proxy: bool = False) -> str:
     """
     Fetch one URL with the shared aiohttp session.
-    ssl=False only when proxied; direct connections keep SSL validation.
+    Certificate validation remains enabled, including proxied connections.
     """
     proxy = PROXY_MGR.get_for(url) if (use_proxy and PROXY_MGR.ready) else None
-    ssl_mode = False if proxy else True
+    ssl_mode = True
     try:
         kwargs: dict = {"timeout": timeout, "ssl": ssl_mode, "allow_redirects": True}
         if proxy:
@@ -166,19 +204,10 @@ async def _fetch_one(session, url: str, timeout, use_proxy: bool = False) -> str
             PROXY_MGR.report(proxy, False, err)
         if any(fe in err for fe in _FATAL_PROXY_ERRORS):
             return ""
-        if not proxy and ("ssl" in err.lower() or "certificate" in err.lower()):
-            try:
-                async with session.get(
-                    url, timeout=timeout, ssl=False, allow_redirects=True
-                ) as resp:
-                    if resp.status in (200, 201, 206):
-                        return await resp.text(errors="ignore")
-            except Exception:
-                pass
         return ""
 
 
-async def async_scrape_website(url: str, session, timeout) -> tuple[str, str]:
+async def async_scrape_website(url: str, session, timeout, origins=None) -> tuple[str, str]:
     """
     Scrape a contractor website using the shared session.
     Checks homepage + up to 3 contact/about subpages.
@@ -189,9 +218,25 @@ async def async_scrape_website(url: str, session, timeout) -> tuple[str, str]:
     if not html:
         return "", ""
     email, phone = extract_contacts(html)
-    # JS file scan while we still have the homepage HTML in memory
-    if not email:
-        email = _scan_js_for_email(url, html)
+    if origins is not None:
+        if email:
+            origins["email_source_url"] = url
+        if phone:
+            origins["phone_source_url"] = url
+    # Fetch linked scripts asynchronously so Stop cancels these requests too.
+    if not email and HAS_SCRAPLING:
+        page = Adaptor(html)
+        domain = urlparse(url).netloc
+        scripts = [urljoin(url, el.attrib.get("src", "")) for el in page.css("script[src]")]
+        for script_url in [item for item in scripts if urlparse(item).netloc == domain][:5]:
+            javascript = await _fetch_one(session, script_url, timeout)
+            if len(javascript) > 500_000:
+                continue
+            email, _ = extract_contacts(javascript)
+            if email:
+                if origins is not None:
+                    origins["email_source_url"] = script_url
+                break
     if (not email or not phone) and HAS_SCRAPLING:
         page = Adaptor(html)
         hints = ("contact", "about", "team", "reach", "support")
@@ -228,8 +273,12 @@ async def async_scrape_website(url: str, session, timeout) -> tuple[str, str]:
                 se, sp = extract_contacts(sub_html)
                 if not email:
                     email = se
+                    if se and origins is not None:
+                        origins["email_source_url"] = sub_url
                 if not phone:
                     phone = sp
+                    if sp and origins is not None:
+                        origins["phone_source_url"] = sub_url
     return email, phone
 
 
@@ -238,6 +287,7 @@ async def enrich_batch_async(
     city_hint: str,
     location: str = "",
     _ddg_state: list | None = None,
+    stop_ev=None,
 ) -> None:
     """
     Async parallel enrichment using ONE shared aiohttp.ClientSession.
@@ -266,30 +316,18 @@ async def enrich_batch_async(
         limit=20, ttl_dns_cache=300, force_close=False, enable_cleanup_closed=True
     )
 
-    async def _guess_domain(name: str, trade: str, session) -> str:
-        clean = re.sub(r"[^a-z0-9]", "", name.lower())
+    async def _guess_domain(contractor: Contractor, session) -> str:
+        clean = re.sub(r"[^a-z0-9]", "", contractor.name.lower())
         city_c = re.sub(r"[^a-z0-9]", "", city_hint.lower())
-        # pick first trade keyword as suffix (e.g. "plumbing", "hvac")
-        trade_kws = TRADE_KW.get(trade, {}).get("ddg", [])
-        trade_suffix = re.sub(r"[^a-z0-9]", "", trade_kws[0].lower()) if trade_kws else ""
-        candidates = _build_domain_candidates(clean, city_c, trade_suffix)
-        if not candidates:
-            return ""
-        t_short = aiohttp.ClientTimeout(total=3)
-        for url in candidates[:8]:  # check first 8; beyond that accuracy drops
-            try:
-                async with session.head(url, timeout=t_short, ssl=True, allow_redirects=True) as r:
-                    if r.status in (200, 301, 302, 304):
-                        return str(r.url)
-            except Exception:
-                try:
-                    async with session.head(
-                        url, timeout=t_short, ssl=False, allow_redirects=True
-                    ) as r:
-                        if r.status in (200, 301, 302, 304):
-                            return str(r.url)
-                except Exception:
-                    pass
+        trade_kws = TRADE_KW.get(contractor.trade, {}).get("ddg", [])
+        suffix = re.sub(r"[^a-z0-9]", "", trade_kws[0].lower()) if trade_kws else ""
+        short_timeout = aiohttp.ClientTimeout(total=3)
+        for url in _build_domain_candidates(clean, city_c, suffix)[:8]:
+            if stop_ev is not None and stop_ev.is_set():
+                raise asyncio.CancelledError()
+            html = await _fetch_one(session, url, short_timeout)
+            if html and website_matches(contractor, html):
+                return url
         return ""
 
     loc_hint = location or city_hint
@@ -302,10 +340,12 @@ async def enrich_batch_async(
         async with _get_sem(c.website or ""):
             # Step 1: domain guessing
             if not c.website and c.name:
-                guessed = await _guess_domain(c.name, c.trade, session)
+                guessed = await _guess_domain(c, session)
                 if guessed:
                     c.website = guessed
-            # Step 2: DDG website lookup — capped at DDG_CAP per batch.
+                    c.website_method = "corroborated-domain"
+                    c.confidence = "corroborated"
+            # Step 2: DDG website lookup — capped at DDG_CAP per trade.
             # OSM contractors rarely have websites; hitting DDG 30+ times
             # causes 202 rate-limit responses and blocks all three trades.
             if not c.website and c.name and ddg_count[0] < DDG_CAP:
@@ -314,57 +354,56 @@ async def enrich_batch_async(
                 from scrapers.ddg import ddg_search
 
                 q = quote_plus(f'"{c.name}" "{loc_hint}" -yelp -yellowpages -bbb')
-                for _, url, _ in ddg_search(q, pages=1):
+                candidates = await asyncio.to_thread(
+                    call_with_stop, stop_ev, ddg_search, q, pages=1
+                )
+                for _, url, _ in candidates:
                     if url.startswith("http") and not any(d in url for d in SKIP_DOMAINS):
-                        c.website = url
-                        break
+                        candidate_html = await _fetch_one(session, url, timeout)
+                        if website_matches(c, candidate_html):
+                            c.website = url
+                            c.website_method = "corroborated-search"
+                            c.confidence = "corroborated"
+                            break
             # Step 3: scrape website (cache first)
             if c.website and (not c.email or not c.phone):
-                cache_key = _domain_key(c.website)
+                cache_key = "contact-v2:" + c.website.rstrip("/") + "|" + _address_key(c.address)
                 cached_contact = CACHE.get_contact(cache_key) if cache_key else None
                 if cached_contact:
                     if not c.email:
                         raw_e = cached_contact.get("email", "")
                         c.email = _clean_email(raw_e) if raw_e else ""
+                        c.email_source_url = cached_contact.get("email_source_url", "")
                     if not c.phone:
                         c.phone = cached_contact.get("phone", "")
+                        c.phone_source_url = cached_contact.get("phone_source_url", "")
                     if not c.website:
                         c.website = cached_contact.get("website", "")
                 else:
-                    we, wp = await async_scrape_website(c.website, session, timeout)
+                    origins = {}
+                    we, wp = await async_scrape_website(c.website, session, timeout, origins)
                     if not c.email:
                         c.email = we
+                        c.email_source_url = origins.get("email_source_url", "")
                     if not c.phone:
                         c.phone = wp
+                        c.phone_source_url = origins.get("phone_source_url", "")
                     if cache_key and (we or wp):
-                        CACHE.set_contact(cache_key, we, wp, c.website)
+                        CACHE.set_contact(cache_key, we, wp, c.website, origins)
+                record_contact(c, c.website)
             # Step 4: email pattern guessing from domain (MX-verified)
             if not c.email and c.website:
                 domain = urlparse(c.website).netloc.replace("www.", "").split(":")[0]
                 if domain:
-                    has_mx = True
-                    if HAS_DNS:
-                        import dns.resolver as _dns
-
-                        try:
-                            await asyncio.to_thread(_dns.resolve, domain, "MX")
-                        except Exception:
-                            has_mx = False
-                    if has_mx:
-                        for prefix in [
-                            "info",
-                            "contact",
-                            "service",
-                            "office",
-                            "admin",
-                            "support",
-                            "hello",
-                        ]:
-                            candidate = f"{prefix}@{domain}"
-                            if _ok_email(candidate):
-                                c.email = candidate
-                                c.email_status = "guessed"
-                                break
+                    status, _ = await asyncio.to_thread(verify_email, f"info@{domain}")
+                    if status == "valid":
+                        candidate = f"info@{domain}"
+                        if _ok_email(candidate):
+                            c.email = candidate
+                            c.email_status = "unknown"
+                            c.email_method = "guessed"
+                            c.email_source_url = ""
+                            c.confidence = "unconfirmed"
 
     async with aiohttp.ClientSession(
         headers=_AIOHTTP_HEADERS,
@@ -372,11 +411,28 @@ async def enrich_batch_async(
         timeout=timeout,
     ) as session:
         tasks = [asyncio.create_task(enrich_one(c, session)) for c in contractors]
-        for coro in asyncio.as_completed(tasks):
-            try:
-                await coro
-            except Exception as e:
-                logger.debug(f"[Enrich] task error: {type(e).__name__}: {e}")
+        pending = set(tasks)
+        try:
+            while pending:
+                if stop_ev is not None and stop_ev.is_set():
+                    raise asyncio.CancelledError()
+                completed, pending = await asyncio.wait(
+                    pending, timeout=0.1, return_when=asyncio.FIRST_COMPLETED
+                )
+                for task in completed:
+                    try:
+                        task.result()
+                    except SearchCancelled as exc:
+                        raise asyncio.CancelledError() from exc
+                    except Exception as exc:
+                        logger.debug("[Enrich] task error: %s", exc)
+            if stop_ev is not None and stop_ev.is_set():
+                raise asyncio.CancelledError()
+        finally:
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
 
 
 def scrape_website(url: str) -> tuple[str, str]:

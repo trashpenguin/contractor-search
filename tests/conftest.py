@@ -1,21 +1,20 @@
 import sys
-from unittest.mock import MagicMock
+from pathlib import Path
 
-# Stub out heavy optional deps before any local imports
-for mod in [
-    "scrapling",
-    "aiohttp",
-    "patchright",
-    "playwright",
-    "PySide6",
-    "PySide6.QtWidgets",
-    "PySide6.QtCore",
-    "PySide6.QtGui",
-]:
-    if mod not in sys.modules:
-        sys.modules[mod] = MagicMock()
+import pytest
+from PySide6.QtCore import QCoreApplication, QEvent
+from PySide6.QtWidgets import QApplication
 
-import compat  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-compat.HAS_SCRAPLING = False
-compat.Adaptor = None
+_APPLICATION = None
+
+
+@pytest.fixture(scope="session", autouse=True)
+def application():
+    global _APPLICATION
+    _APPLICATION = QApplication.instance() or QApplication([])
+    yield _APPLICATION
+    _APPLICATION.closeAllWindows()
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    _APPLICATION.processEvents()

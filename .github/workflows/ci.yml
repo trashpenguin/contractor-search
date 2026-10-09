@@ -1,12 +1,11 @@
----
 name: CI
-
-on:  # yamllint disable-line rule:truthy
+on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
-
+permissions:
+  contents: read
 jobs:
   lint:
     runs-on: ubuntu-latest
@@ -15,25 +14,46 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Install lint tools
-        run: pip install black==24.3.0 isort flake8
-      - name: Black
-        run: black --check --diff .
-      - name: isort
-        run: isort --check-only --diff .
-      - name: flake8
-        run: flake8 .
-
+      - run: pip install black==24.3.0 isort==5.13.2 flake8==7.1.1
+      - run: black --check --diff .
+      - run: isort --check-only --diff .
+      - run: flake8 .
   test:
     runs-on: ubuntu-latest
+    env:
+      QT_QPA_PLATFORM: offscreen
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Install test dependencies
-        run: |
-          pip install pytest dnspython msgspec aiohttp
-          # Skip PySide6 and scrapling — tests target pure-Python logic only
-      - name: Run tests
-        run: pytest tests/ -v
+          cache: pip
+      - name: Qt runtime libraries
+        run: sudo apt-get update && sudo apt-get install -y libegl1 libopengl0
+      - run: pip install -r requirements.txt pytest==8.3.5
+      - name: Resolved dependencies
+        run: python tools/dependency_report.py
+      - run: pytest tests/ -v
+      - name: GUI startup
+        run: python contractor_gui.py --smoke-test
+  windows-build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -r requirements.txt -r requirements-build.txt
+      - name: Resolved dependencies
+        run: python tools/dependency_report.py
+      - name: Browser installation and launch
+        run: python tools/browser_smoke.py
+      - name: Build application
+        run: pyinstaller ContractorFinder.spec --clean --noconfirm
+      - name: Frozen GUI startup
+        run: python tools/package_smoke.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ContractorFinder-Windows
+          path: dist/ContractorFinder/

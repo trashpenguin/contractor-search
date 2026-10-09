@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import logging
 import re
-import time
 from dataclasses import asdict
 from urllib.parse import parse_qs, quote_plus, unquote, urlparse
 
@@ -11,7 +10,7 @@ from cache import CACHE
 from compat import HAS_SCRAPLING, Adaptor, Fetcher, StealthySession
 from constants import PHONE_RE, SCRAPE_SKIP, TRADE_KW
 from extractor import _parse_phone
-from http_client import http_get
+from http_client import SearchCancelled, check_cancelled, http_get, interruptible_sleep
 from models import Contractor
 from proxy import PROXY_MGR
 
@@ -58,6 +57,8 @@ def _parse_next_data(html: str) -> list[dict]:
         return []
     try:
         data = json.loads(m.group(1))
+    except SearchCancelled:
+        raise
     except Exception:
         return []
 
@@ -240,6 +241,8 @@ def _extract_biz_page(html: str) -> tuple[str, str]:
                         website = raw_url
             if phone and website:
                 break
+        except SearchCancelled:
+            raise
         except Exception:
             pass
 
@@ -274,6 +277,8 @@ def _extract_biz_page(html: str) -> tuple[str, str]:
                     if real.startswith("http") and not any(d in real for d in SCRAPE_SKIP):
                         website = real
                         break
+                except SearchCancelled:
+                    raise
                 except Exception:
                     pass
 
@@ -332,6 +337,8 @@ def _yelp_search_fetcher(cflt: str, term: str, loc: str, limit: int) -> list[dic
                 status = getattr(r, "status", 0) or 0
                 body = r.body or b""
                 html = body.decode("utf-8", errors="ignore") if isinstance(body, bytes) else body
+            except SearchCancelled:
+                raise
             except Exception as e:
                 logger.info(
                     f"[Yelp/curl] {impersonate} fetch error at offset {offset}: {type(e).__name__}"
@@ -359,7 +366,7 @@ def _yelp_search_fetcher(cflt: str, term: str, loc: str, limit: int) -> list[dic
             )
             if len(batch) < 5:
                 break
-            time.sleep(1.5)
+            interruptible_sleep(1.5)
         if results:
             return results
         if not blocked:
@@ -409,6 +416,8 @@ def _yelp_search_session(cflt: str, term: str, loc: str, limit: int) -> list[dic
                         html = resp.body or b""
                         if isinstance(html, bytes):
                             html = html.decode("utf-8", errors="ignore")
+                    except SearchCancelled:
+                        raise
                     except Exception as e:
                         err_str = str(e)
                         if (
@@ -438,7 +447,9 @@ def _yelp_search_session(cflt: str, term: str, loc: str, limit: int) -> list[dic
                     )
                     if len(batch) < 5:
                         break
-                    time.sleep(2.0)
+                    interruptible_sleep(2.0)
+        except SearchCancelled:
+            raise
         except Exception as e:
             err_str = str(e)
             if proxy_url and PROXY_MGR.ready and any(p in err_str for p in _YELP_PROXY_ERRORS):
@@ -526,6 +537,11 @@ def _yelp_ddg_fallback(kw: str, city_raw: str, state: str, limit: int) -> list[d
             pm = PHONE_RE.search(snippet or "")
             if pm:
                 phone = pm.group(1)
+            from enricher import website_matches
+
+            candidate = Contractor(name=name, phone=phone, address=snippet or "")
+            if not website_matches(candidate, http_get(url, timeout=8, retries=0)):
+                continue
             results.append(
                 {"name": name, "biz_url": "", "phone": phone, "address": "", "website": url}
             )
@@ -540,6 +556,10 @@ def _yelp_ddg_fallback(kw: str, city_raw: str, state: str, limit: int) -> list[d
     return results
 
 
+def _cache_key(trade: str, location: str, limit: int) -> str:
+    return json.dumps(["yelp-v2", trade.casefold(), " ".join(location.casefold().split()), limit])
+
+
 def scrape_yelp(trade: str, location: str, limit: int) -> list[Contractor]:
     """
     Three-phase Yelp scraper:
@@ -551,22 +571,23 @@ def scrape_yelp(trade: str, location: str, limit: int) -> list[Contractor]:
     never the StealthySession — individual /biz/ pages are less aggressively
     blocked, and http_get avoids reusing a session that Yelp already flagged.
     """
+    check_cancelled()
     keyword = TRADE_KW[trade]["yelp"]
     cflt = quote_plus(TRADE_KW[trade].get("yelp_cflt", keyword))
     city_raw = location.split(",")[0].strip()
     # Extract 2-letter state code from the location string (e.g. "Warren, MI 48091" → "MI")
     # Old code used "mi" in location which matched "Miami, FL" and returned wrong state.
-    _state_m = re.search(r"\b([A-Z]{2})\b", location.upper())
+    _state_m = re.search(r"\b([A-Z]{2})\b", location.split(",")[-1].upper())
     state = _state_m.group(1) if _state_m else location.split(",")[-1].strip()[:2].upper()
 
-    cache_key = f"yelp_{trade}_{city_raw}".lower()
+    cache_key = _cache_key(trade, location, limit)
     cached = CACHE.get_ddg(cache_key)
     if cached:
         logger.info(f"[Yelp] {trade}: {len(cached)} from cache")
         return [Contractor(**r) for r in cached if isinstance(r, dict)][:limit]
 
     term = quote_plus(keyword)
-    loc = quote_plus(f"{city_raw}, {state}")
+    loc = quote_plus(location.strip())
 
     # ── Phase 1: curl_cffi ────────────────────────────────────────────────────
     raw_businesses = _yelp_search_fetcher(cflt, term, loc, limit)
@@ -581,14 +602,18 @@ def scrape_yelp(trade: str, location: str, limit: int) -> list[Contractor]:
         logger.info("[Yelp] StealthySession got nothing — trying DDG fallback")
         raw_businesses = _yelp_ddg_fallback(keyword, city_raw, state, limit)
 
+    if not raw_businesses:
+        raise RuntimeError("Yelp returned no parseable results; access may be blocked")
+
     # ── Biz page enrichment (http_get — not the blocked session) ─────────────
     out: list[Contractor] = []
-    seen_names: set[str] = set()
+    seen_names: set[tuple] = set()
     for biz in raw_businesses[:limit]:
         name = biz.get("name", "").strip()
-        if not name or name in seen_names:
+        identity = (name.casefold(), biz.get("phone", ""), biz.get("address", ""))
+        if not name or identity in seen_names:
             continue
-        seen_names.add(name)
+        seen_names.add(identity)
         phone = biz.get("phone", "")
         website = biz.get("website", "")  # may already be set by DDG Strategy C
 
@@ -603,7 +628,7 @@ def scrape_yelp(trade: str, location: str, limit: int) -> list[Contractor]:
                 if not website and bw:
                     website = bw
             logger.debug(f"[Yelp/biz] {name[:30]} → phone={bool(phone)} website={bool(website)}")
-            time.sleep(0.8)
+            interruptible_sleep(0.8)
         out.append(
             Contractor(
                 trade=trade,
@@ -612,6 +637,7 @@ def scrape_yelp(trade: str, location: str, limit: int) -> list[Contractor]:
                 website=website,
                 address=biz.get("address", ""),
                 source="Yelp",
+                discovery_url=biz_url,
             )
         )
 

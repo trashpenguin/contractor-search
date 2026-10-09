@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import json
 import logging
-import time
 from urllib.parse import quote_plus
 from urllib.request import Request, urlopen
 
 from constants import TRADE_KW
+from http_client import check_cancelled, interruptible_sleep
 from models import Contractor
 
 logger = logging.getLogger("ContractorFinder")
@@ -15,7 +15,8 @@ _PLACES_V1 = "https://places.googleapis.com/v1/places:searchText"
 _PLACES_OLD = "https://maps.googleapis.com/maps/api/place/textsearch/json"
 _DETAILS_OLD = "https://maps.googleapis.com/maps/api/place/details/json"
 _FIELDS_V1 = (
-    "places.displayName,places.formattedAddress," "places.nationalPhoneNumber,places.websiteUri"
+    "places.displayName,places.formattedAddress,"
+    "places.nationalPhoneNumber,places.websiteUri,places.id,nextPageToken"
 )
 
 
@@ -57,11 +58,12 @@ def _search_v1(
     pages = 0
 
     while len(out) < limit and pages < 3:
+        check_cancelled()
         body: dict = {
             "textQuery": f"{keyword} near {location}",
             "maxResultCount": min(20, limit - len(out)),
         }
-        if lat and lon:
+        if lat is not None and lon is not None:
             body["locationBias"] = {
                 "circle": {
                     "center": {"latitude": lat, "longitude": lon},
@@ -77,10 +79,11 @@ def _search_v1(
             {"X-Goog-Api-Key": api_key, "X-Goog-FieldMask": _FIELDS_V1},
         )
 
+        if not resp:
+            raise RuntimeError("Google Places request failed")
         if "error" in resp:
             msg = resp["error"].get("message") or str(resp["error"])
-            logger.info(f"[GPlaces/v1] API error: {msg}")
-            return out
+            raise RuntimeError(f"Google Places API error: {msg}")
 
         places = resp.get("places", [])
         logger.info(f"[GPlaces/v1] page {pages + 1}: {len(places)} results")
@@ -99,6 +102,11 @@ def _search_v1(
                     website=p.get("websiteUri", ""),
                     address=p.get("formattedAddress", ""),
                     source="Google Places",
+                    place_id=p.get("id", ""),
+                    discovery_url="https://www.google.com/maps/search/?api=1&query="
+                    + quote_plus(name)
+                    + "&query_place_id="
+                    + p.get("id", ""),
                 )
             )
 
@@ -106,7 +114,7 @@ def _search_v1(
         pages += 1
         if not page_token or not places:
             break
-        time.sleep(2)  # API requires delay before nextPageToken is valid
+        interruptible_sleep(2)  # API requires delay before nextPageToken is valid
 
     return out
 
@@ -155,7 +163,7 @@ def _search_old(
                 result = det.get("result", {})
                 phone = result.get("formatted_phone_number", "")
                 website = result.get("website", "")
-                time.sleep(0.15)
+                interruptible_sleep(0.15)
 
             out.append(
                 Contractor(
@@ -165,6 +173,11 @@ def _search_old(
                     website=website,
                     address=r.get("formatted_address", ""),
                     source="Google Places",
+                    place_id=place_id,
+                    discovery_url="https://www.google.com/maps/search/?api=1&query="
+                    + quote_plus(name)
+                    + "&query_place_id="
+                    + place_id,
                 )
             )
 
@@ -172,7 +185,7 @@ def _search_old(
         pages += 1
         if not page_token or not results:
             break
-        time.sleep(2)
+        interruptible_sleep(2)
 
     return out
 
@@ -181,8 +194,8 @@ def scrape_google_places(
     trade: str,
     location: str,
     limit: int,
-    lat: float = 0.0,
-    lon: float = 0.0,
+    lat: float | None = None,
+    lon: float | None = None,
     radius_m: int = 40000,
 ) -> list[Contractor]:
     """Fetch contractors via Google Places API.
@@ -190,14 +203,14 @@ def scrape_google_places(
     Tries the new Places API v1 first (phone + website in one call),
     falls back to the legacy Text Search + Details API.
     Reads the API key from ~/.contractor_finder_settings.json.
-    Returns [] if no key is configured.
+    Raises a source failure if no key is configured.
     """
     from config import get as settings_get
 
     api_key = (settings_get("google_places_api_key") or "").strip()
     if not api_key:
         logger.info("[GPlaces] No API key configured — skipping")
-        return []
+        raise RuntimeError("Google Places requires an API key")
 
     keyword = TRADE_KW[trade]["google"]
     logger.info(f"[GPlaces] {trade}: '{keyword} near {location}'")
