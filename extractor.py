@@ -279,7 +279,10 @@ def verify_email(email: str) -> tuple[str, str]:
     try:
         mx_records = _dns.resolve(domain, "MX", lifetime=5)
         if mx_records:
-            return "valid", f"Domain accepts mail ({len(mx_records)} MX records); mailbox unconfirmed"
+            return (
+                "valid",
+                f"Domain accepts mail ({len(mx_records)} MX records); mailbox unconfirmed",
+            )
     except _dns.NXDOMAIN:
         return "invalid", "Domain doesn't exist"
     except _dns.NoAnswer:

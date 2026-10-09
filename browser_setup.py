@@ -1,4 +1,5 @@
 """Browser setup shared by source launches and frozen Windows builds."""
+
 from __future__ import annotations
 
 import importlib
@@ -30,10 +31,16 @@ def install_browsers(line_callback) -> bool:
     for package in ("playwright", "patchright"):
         try:
             command, environment = driver_command(package)
-            kwargs = {"creationflags": subprocess.CREATE_NO_WINDOW} if sys.platform == "win32" else {}
+            kwargs = (
+                {"creationflags": subprocess.CREATE_NO_WINDOW} if sys.platform == "win32" else {}
+            )
             with subprocess.Popen(
-                command, env=environment, stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT, text=True, **kwargs
+                command,
+                env=environment,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                **kwargs,
             ) as process:
                 for line in process.stdout:
                     line_callback(line.rstrip())

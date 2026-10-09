@@ -1,4 +1,5 @@
 """Emit formatter changes for remote diagnostics, then require clean formatting."""
+
 import json
 import subprocess
 from pathlib import Path

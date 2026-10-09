@@ -11,8 +11,12 @@ from constants import SKIP_DOMAINS
 from enricher import dedup, enrich_batch_async, scrape_website, website_matches
 from extractor import _clean_email, _ok_email
 from http_client import (
-    SearchCancelled, check_cancelled, close_event_loop, get_event_loop,
-    http_get, set_search_stop,
+    SearchCancelled,
+    check_cancelled,
+    close_event_loop,
+    get_event_loop,
+    http_get,
+    set_search_stop,
 )
 from location import valid_location
 from models import Contractor
@@ -36,8 +40,16 @@ SRC_FN = {
 
 
 def run_search(
-    location: str, trades: list[str], limit: int, radius_m: int, enrich: bool,
-    sources: list[str], progress_cb, result_cb, done_cb, stop_ev: threading.Event,
+    location: str,
+    trades: list[str],
+    limit: int,
+    radius_m: int,
+    enrich: bool,
+    sources: list[str],
+    progress_cb,
+    result_cb,
+    done_cb,
+    stop_ev: threading.Event,
     source_cb=None,
 ):
     """Complete exactly once with completed, partial, failed, or cancelled."""
@@ -66,10 +78,14 @@ def run_search(
         for trade_idx, trade in enumerate(trades):
             check_cancelled()
             collected = []
-            ordered = sorted(sources, key=lambda source: (
-                0 if source == "Google Places" else 1 if source == "Google Search"
-                else 2 if source == "Google" else 3
-            ))
+            ordered = sorted(
+                sources,
+                key=lambda source: (
+                    0
+                    if source == "Google Places"
+                    else 1 if source == "Google Search" else 2 if source == "Google" else 3
+                ),
+            )
             for src_idx, src in enumerate(ordered):
                 check_cancelled()
                 pct = int((trade_idx + (src_idx + 1) / len(sources) * 0.4) * allocation)
@@ -122,16 +138,21 @@ def run_search(
                 ddg_state = [0]
                 for start in range(0, len(collected), ENRICH_BATCH_SIZE):
                     check_cancelled()
-                    batch = collected[start:start + ENRICH_BATCH_SIZE]
+                    batch = collected[start : start + ENRICH_BATCH_SIZE]
                     progress_cb(
                         int((trade_idx + 0.4 + 0.6 * start / len(collected)) * allocation),
                         f"[{trade}] Enriching {start + 1}-{start + len(batch)}/{len(collected)}...",
                     )
                     if HAS_AIOHTTP:
-                        get_event_loop().run_until_complete(enrich_batch_async(
-                            batch, city_hint, location=location,
-                            _ddg_state=ddg_state, stop_ev=stop_ev,
-                        ))
+                        get_event_loop().run_until_complete(
+                            enrich_batch_async(
+                                batch,
+                                city_hint,
+                                location=location,
+                                _ddg_state=ddg_state,
+                                stop_ev=stop_ev,
+                            )
+                        )
                     else:
                         _sync_enrich(batch, city_hint, location)
             for contractor in collected:

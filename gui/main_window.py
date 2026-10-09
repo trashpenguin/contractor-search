@@ -27,8 +27,8 @@ from gui.search_mixin import SearchMixin
 from gui.style import COLS
 from gui.table_mixin import TableMixin
 from gui.widgets import StatCard, TradeSelector
-from models import Contractor
 from location import miles_to_meters
+from models import Contractor
 
 _SRC_IDLE_STYLE = (
     "color:#475569;font-size:10px;font-family:monospace;"

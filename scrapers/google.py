@@ -6,10 +6,8 @@ from urllib.parse import quote_plus, unquote_plus
 
 from compat import HAS_SCRAPLING, Adaptor, StealthySession
 from constants import ADDR_RE, PHONE_RE, TRADE_KW
-from models import Contractor
-
-
 from http_client import SearchCancelled, check_cancelled, interruptible_sleep
+from models import Contractor
 
 logger = logging.getLogger("ContractorFinder")
 
@@ -247,8 +245,7 @@ def scrape_google(
             except SearchCancelled:
                 raise
             except Exception as e:
-                logger.warning(f"[Google] Load error: {type(e).__name__}")
-                return out
+                raise RuntimeError("Google Maps browser request failed") from e
 
             if not html:
                 return out
@@ -273,16 +270,10 @@ def scrape_google(
             logger.info(f"[Google] {trade}: {len(entries)} entries from feed/place-links")
 
             # Supplement entries with JS blob data
-            phone_pool = list(js_phones)
-            website_pool = list(js_websites)
 
             for i, entry in enumerate(entries[:limit]):
                 phone = entry.get("phone", "")
                 website = entry.get("website", "")
-                if not phone and i < len(phone_pool):
-                    phone = phone_pool[i]
-                if not website and website_pool:
-                    website = website_pool.pop(0)
                 out.append(
                     Contractor(
                         trade=trade,
@@ -301,8 +292,8 @@ def scrape_google(
                     if name in seen_names:
                         continue
                     seen_names.add(name)
-                    p = phone_pool.pop(0) if phone_pool else ""
-                    w = website_pool.pop(0) if website_pool else ""
+                    p = ""
+                    w = ""
                     out.append(
                         Contractor(
                             trade=trade,
@@ -317,6 +308,8 @@ def scrape_google(
         raise
     except Exception as e:
         logger.error(f"[Google] Session error: {type(e).__name__}: {e}")
+        if not out:
+            raise RuntimeError("Google Maps source failed") from e
 
     logger.info(f"[Google] {trade}: {len(out)} results")
     return out[:limit]

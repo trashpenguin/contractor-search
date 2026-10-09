@@ -6,9 +6,7 @@ import time
 
 from cache import CACHE
 from compat import HAS_SCRAPLING, Adaptor
-from http_client import http_get
-
-from http_client import SearchCancelled, check_cancelled, interruptible_sleep
+from http_client import SearchCancelled, check_cancelled, http_get, interruptible_sleep
 
 logger = logging.getLogger("ContractorFinder")
 

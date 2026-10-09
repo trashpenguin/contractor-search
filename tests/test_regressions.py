@@ -40,8 +40,12 @@ def test_conflicting_contacts_do_not_merge():
 
 
 def test_trade_words_alone_do_not_merge():
-    assert len(dedup([Contractor("HVAC", "Smith Heating"),
-                      Contractor("Electrical", "Smith Electric")])) == 2
+    assert (
+        len(
+            dedup([Contractor("HVAC", "Smith Heating"), Contractor("Electrical", "Smith Electric")])
+        )
+        == 2
+    )
 
 
 def test_domain_requires_business_identity():
@@ -76,15 +80,18 @@ def test_tls_validation_even_with_proxy():
         def get(self, url, **kwargs):
             assert kwargs["ssl"] is True
             raise RuntimeError("certificate verification failed")
-    with patch("enricher.PROXY_MGR", SimpleNamespace(
-        ready=True, get_for=lambda url: "http://proxy", report=lambda *args: None
-    )):
+
+    with patch(
+        "enricher.PROXY_MGR",
+        SimpleNamespace(ready=True, get_for=lambda url: "http://proxy", report=lambda *args: None),
+    ):
         assert asyncio.run(_fetch_one(Session(), "https://example.com", 1, True)) == ""
 
 
 def test_export_preserves_guess_provenance(tmp_path):
-    row = Contractor("HVAC", "Smith", email="info@smith.com",
-                     email_method="guessed", email_status="valid")
+    row = Contractor(
+        "HVAC", "Smith", email="info@smith.com", email_method="guessed", email_status="valid"
+    )
     path = tmp_path / "results.csv"
     write_csv(path, [row])
     with path.open(encoding="utf-8-sig", newline="") as handle:
@@ -106,8 +113,10 @@ def test_failed_atomic_export_retains_existing_file(tmp_path):
 
 
 def test_browser_command_contains_driver_cli():
-    driver = SimpleNamespace(compute_driver_executable=lambda: ("node.exe", "cli.js"),
-                             get_driver_env=lambda: {"DRIVER": "yes"})
+    driver = SimpleNamespace(
+        compute_driver_executable=lambda: ("node.exe", "cli.js"),
+        get_driver_env=lambda: {"DRIVER": "yes"},
+    )
     with patch("browser_setup.importlib.import_module", return_value=driver):
         command, env = driver_command("playwright")
     assert command == ["node.exe", "cli.js", "install", "chromium"]
@@ -116,6 +125,7 @@ def test_browser_command_contains_driver_cli():
 
 def test_cache_clear_counts_both_tables(tmp_path):
     from cache import ContactCache
+
     with patch.object(ContactCache, "DB_PATH", str(tmp_path / "cache.db")):
         cache = ContactCache()
     cache.set_contact("site", "email", "phone", "website")
@@ -125,6 +135,7 @@ def test_cache_clear_counts_both_tables(tmp_path):
 
 def test_malformed_settings_are_ignored(tmp_path):
     import config
+
     path = tmp_path / "settings.json"
     path.write_text(json.dumps([]))
     with patch.object(config, "_SETTINGS_FILE", path):
@@ -135,34 +146,57 @@ def test_malformed_settings_are_ignored(tmp_path):
 
 def test_search_cancelled_before_network():
     from search import run_search
+
     event = threading.Event()
     event.set()
     completed = []
-    run_search("48091", ["HVAC"], 10, 1000, False, ["OSM"],
-               lambda *args: None, lambda *args: None,
-               lambda *args: completed.append(args), event)
+    run_search(
+        "48091",
+        ["HVAC"],
+        10,
+        1000,
+        False,
+        ["OSM"],
+        lambda *args: None,
+        lambda *args: None,
+        lambda *args: completed.append(args),
+        event,
+    )
     assert len(completed) == 1
     assert completed[0][0] == "cancelled"
 
 
 def test_search_partial_failure_is_reported():
     import search
+
     completed = []
     with patch("scrapers.osm.geocode", return_value=(42, -83)):
-        with patch.dict(search.SRC_FN, {
-            "Yelp": lambda *args: [],
-            "YellowPages": lambda *args: (_ for _ in ()).throw(RuntimeError("blocked")),
-        }):
-            search.run_search("48091", ["HVAC"], 10, 1000, False,
-                              ["Yelp", "YellowPages"], lambda *args: None,
-                              lambda *args: None, lambda *args: completed.append(args),
-                              threading.Event())
+        with patch.dict(
+            search.SRC_FN,
+            {
+                "Yelp": lambda *args: [],
+                "YellowPages": lambda *args: (_ for _ in ()).throw(RuntimeError("blocked")),
+            },
+        ):
+            search.run_search(
+                "48091",
+                ["HVAC"],
+                10,
+                1000,
+                False,
+                ["Yelp", "YellowPages"],
+                lambda *args: None,
+                lambda *args: None,
+                lambda *args: completed.append(args),
+                threading.Event(),
+            )
     assert len(completed) == 1
     assert completed[0][0] == "partial"
 
 
 def test_osm_fallback_filters_radius():
     from scrapers.osm import scrape_osm
+
     places = [
         {"lat": "42.001", "lon": "-83", "name": "Smith HVAC", "place_id": "1"},
         {"lat": "43", "lon": "-83", "name": "Far HVAC", "place_id": "2"},
@@ -172,3 +206,74 @@ def test_osm_fallback_filters_radius():
             with patch("scrapers.osm.interruptible_sleep"):
                 rows = scrape_osm("HVAC", 42, -83, 1000, 10)
     assert [row.name for row in rows] == ["Smith HVAC"]
+
+
+def test_proxy_bans_are_honored():
+    from proxy import ProxyEntry, ProxyManager
+    manager = ProxyManager()
+    manager._enabled = True
+    manager._pool = [ProxyEntry("http://proxy:8080", 1)]
+    manager.ban_for_domain("http://proxy:8080", "www.yelp.com")
+    assert manager.get_for("https://www.yelp.com/search") is None
+    manager.disable()
+    assert manager.get() is None
+
+
+def test_async_enrichment_stop_cancels_pending_requests():
+    from enricher import enrich_batch_async
+    started = threading.Event()
+    stop = threading.Event()
+
+    async def slow_fetch(*args, **kwargs):
+        started.set()
+        await asyncio.sleep(60)
+        return ""
+
+    async def scenario():
+        task = asyncio.create_task(enrich_batch_async(
+            [Contractor("HVAC", "Smith", website="https://smith.example")],
+            "Warren", stop_ev=stop
+        ))
+        while not started.is_set():
+            await asyncio.sleep(0.01)
+        stop.set()
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(task, timeout=1)
+
+    with patch("enricher._fetch_one", side_effect=slow_fetch):
+        asyncio.run(scenario())
+
+
+def test_worker_verification_snapshot_uses_ids():
+    from workers import VerifyWorker
+    row = Contractor("HVAC", "Smith", email="info@smith.com")
+    worker = VerifyWorker([row])
+    results = []
+    worker.result.connect(lambda *args: results.append(args))
+    with patch("workers.verify_email", return_value=("valid", "mail domain")):
+        worker.run()
+    assert results == [(row.record_id, "valid", "mail domain")]
+    assert row.email_status == ""
+
+
+def test_async_contact_source_tracks_subpage():
+    from enricher import async_scrape_website
+    origins = {}
+    homepage = '<a href="/contact">Contact</a>'
+    contact = '<a href="mailto:office@smithhvac.com">Email</a><p>(313) 555-1234</p>'
+    with patch("enricher._fetch_one", side_effect=[homepage, contact]):
+        email, phone = asyncio.run(async_scrape_website(
+            "https://smithhvac.com", None, 1, origins
+        ))
+    assert email == "office@smithhvac.com"
+    assert phone
+    assert origins["email_source_url"] == "https://smithhvac.com/contact"
+
+
+def test_cached_contact_preserves_source_url(tmp_path):
+    from cache import ContactCache
+    with patch.object(ContactCache, "DB_PATH", str(tmp_path / "cache.db")):
+        cache = ContactCache()
+    cache.set_contact("site", "office@smith.com", "", "https://smith.com",
+                      {"email_source_url": "https://smith.com/contact"})
+    assert cache.get_contact("site")["email_source_url"] == "https://smith.com/contact"

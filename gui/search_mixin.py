@@ -200,7 +200,9 @@ class SearchMixin:
         )
 
     def _busy(self):
-        return any(worker is not None and worker.isRunning() for worker in (self.worker, self.vworker))
+        return any(
+            worker is not None and worker.isRunning() for worker in (self.worker, self.vworker)
+        )
 
     def _set_busy(self, busy):
         for control in [self.sbtn, self.vbtn, self.clear_btn, self.clear_cache_btn]:

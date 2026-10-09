@@ -1,4 +1,5 @@
 """Keep contact origin distinct from domain-level email checks."""
+
 from __future__ import annotations
 
 from models import Contractor

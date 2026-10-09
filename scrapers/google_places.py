@@ -6,8 +6,8 @@ from urllib.parse import quote_plus
 from urllib.request import Request, urlopen
 
 from constants import TRADE_KW
-from models import Contractor
 from http_client import check_cancelled, interruptible_sleep
+from models import Contractor
 
 logger = logging.getLogger("ContractorFinder")
 
@@ -15,7 +15,8 @@ _PLACES_V1 = "https://places.googleapis.com/v1/places:searchText"
 _PLACES_OLD = "https://maps.googleapis.com/maps/api/place/textsearch/json"
 _DETAILS_OLD = "https://maps.googleapis.com/maps/api/place/details/json"
 _FIELDS_V1 = (
-    "places.displayName,places.formattedAddress," "places.nationalPhoneNumber,places.websiteUri,places.id,nextPageToken"
+    "places.displayName,places.formattedAddress,"
+    "places.nationalPhoneNumber,places.websiteUri,places.id,nextPageToken"
 )
 
 
@@ -102,8 +103,10 @@ def _search_v1(
                     address=p.get("formattedAddress", ""),
                     source="Google Places",
                     place_id=p.get("id", ""),
-                    discovery_url="https://www.google.com/maps/search/?api=1&query=" + quote_plus(name)
-                    + "&query_place_id=" + p.get("id", ""),
+                    discovery_url="https://www.google.com/maps/search/?api=1&query="
+                    + quote_plus(name)
+                    + "&query_place_id="
+                    + p.get("id", ""),
                 )
             )
 
@@ -171,8 +174,10 @@ def _search_old(
                     address=r.get("formatted_address", ""),
                     source="Google Places",
                     place_id=place_id,
-                    discovery_url="https://www.google.com/maps/search/?api=1&query=" + quote_plus(name)
-                    + "&query_place_id=" + place_id,
+                    discovery_url="https://www.google.com/maps/search/?api=1&query="
+                    + quote_plus(name)
+                    + "&query_place_id="
+                    + place_id,
                 )
             )
 

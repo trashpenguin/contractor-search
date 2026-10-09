@@ -26,9 +26,17 @@ class SearchWorker(QThread):
 
     def run(self):
         run_search(
-            self.location, self.trades, self.limit, self.radius_m, self.enrich,
-            self.sources, self.progress.emit, self.result.emit, self.completed.emit,
-            self._stop, source_cb=self.source_done.emit,
+            self.location,
+            self.trades,
+            self.limit,
+            self.radius_m,
+            self.enrich,
+            self.sources,
+            self.progress.emit,
+            self.result.emit,
+            self.completed.emit,
+            self._stop,
+            source_cb=self.source_done.emit,
         )
 
     def stop(self):
@@ -51,7 +59,9 @@ class VerifyWorker(QThread):
             for index, (record_id, email) in enumerate(self.rows):
                 if self._stop.is_set():
                     break
-                self.progress.emit(int(index / max(total, 1) * 100), f"Checking {email or '(no email)'}...")
+                self.progress.emit(
+                    int(index / max(total, 1) * 100), f"Checking {email or '(no email)'}..."
+                )
                 status, reason = verify_email(email) if email else ("unknown", "No email")
                 if self._stop.is_set():
                     break

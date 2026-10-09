@@ -1,4 +1,5 @@
 """Exercise real Qt objects; network work stays outside these UI regressions."""
+
 from unittest.mock import patch
 
 import pytest
@@ -43,8 +44,10 @@ def test_clear_refuses_running_worker(window):
     class Running:
         def isRunning(self):
             return True
+
         def stop(self):
             pass
+
     row = Contractor("HVAC", "Alpha")
     window.rows = [row]
     window.worker = Running()

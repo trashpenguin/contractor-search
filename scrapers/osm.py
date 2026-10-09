@@ -6,10 +6,9 @@ import re
 from urllib.parse import quote_plus
 
 from constants import OVERPASS_EPS, TRADE_KW
-from http_client import http_get, post_bytes
-from models import Contractor
+from http_client import SearchCancelled, check_cancelled, http_get, interruptible_sleep, post_bytes
 from location import distance_m
-from http_client import SearchCancelled, check_cancelled, interruptible_sleep
+from models import Contractor
 
 logger = logging.getLogger("ContractorFinder")
 
@@ -166,9 +165,11 @@ def scrape_osm(trade: str, lat: float, lon: float, radius_m: int, limit: int) ->
                 address=addr,
                 source="OSM",
                 place_id=pid,
-                discovery_url=(f"https://www.openstreetmap.org/{el.get('type')}/{el.get('id')}"
-                               if el.get("type") in {"node", "way", "relation"} else
-                               f"https://www.openstreetmap.org/search?query={quote_plus(name)}"),
+                discovery_url=(
+                    f"https://www.openstreetmap.org/{el.get('type')}/{el.get('id')}"
+                    if el.get("type") in {"node", "way", "relation"}
+                    else f"https://www.openstreetmap.org/search?query={quote_plus(name)}"
+                ),
             )
         )
         if len(out) >= limit:

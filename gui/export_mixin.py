@@ -5,11 +5,18 @@ import os
 import tempfile
 import webbrowser
 
-from PySide6.QtWidgets import QDialog, QDialogButtonBox, QFileDialog, QLabel, QTextEdit, QVBoxLayout
+from PySide6.QtWidgets import (
+    QDialog,
+    QDialogButtonBox,
+    QFileDialog,
+    QLabel,
+    QMessageBox,
+    QTextEdit,
+    QVBoxLayout,
+)
 
 from exporter import _BOARD_HEADERS, _write_board_csv, write_csv
 from provenance import email_label
-from PySide6.QtWidgets import QMessageBox
 
 
 class ExportMixin:

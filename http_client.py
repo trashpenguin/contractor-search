@@ -11,6 +11,7 @@ from proxy import PROXY_MGR
 
 logger = logging.getLogger("ContractorFinder")
 
+
 class SearchCancelled(Exception):
     """Raised when the current search was stopped."""
 

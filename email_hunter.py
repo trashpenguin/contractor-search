@@ -12,9 +12,7 @@ from urllib.parse import quote_plus, urljoin, urlparse
 from compat import HAS_SCRAPLING, Adaptor
 from constants import EMAIL_RE
 from extractor import _clean_email, _ok_email
-from http_client import http_get
-
-from http_client import SearchCancelled, check_cancelled, interruptible_sleep
+from http_client import SearchCancelled, check_cancelled, http_get, interruptible_sleep
 
 logger = logging.getLogger("ContractorFinder")
 

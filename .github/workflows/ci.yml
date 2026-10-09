@@ -21,6 +21,7 @@ jobs:
           isort .
           python tools/format_diagnostics.py
       - run: flake8 .
+        if: always()
   test:
     runs-on: ubuntu-latest
     env:
@@ -31,6 +32,8 @@ jobs:
         with:
           python-version: "3.11"
           cache: pip
+      - name: Qt runtime libraries
+        run: sudo apt-get update && sudo apt-get install -y libegl1 libopengl0
       - run: pip install -r requirements.txt pytest==8.3.5
       - name: Resolved dependencies
         run: python tools/dependency_report.py
@@ -48,6 +51,8 @@ jobs:
       - run: pip install -r requirements.txt pyinstaller
       - name: Resolved dependencies
         run: python tools/dependency_report.py
+      - name: Browser installation and launch
+        run: python tools/browser_smoke.py
       - name: Build application
         run: pyinstaller ContractorFinder.spec --clean --noconfirm
       - name: Frozen GUI startup

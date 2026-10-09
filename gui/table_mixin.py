@@ -6,8 +6,8 @@ from PySide6.QtWidgets import QStyledItemDelegate, QTableWidgetItem
 
 from constants import SOURCE_COLORS, TRADE_COLORS
 from extractor import email_role_warning
-from provenance import email_label
 from gui.style import VERIFY_COLORS, VERIFY_ICONS
+from provenance import email_label
 
 _EMAIL_COL = 4
 _WEBSITE_COL = 6

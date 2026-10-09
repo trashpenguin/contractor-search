@@ -7,10 +7,8 @@ from urllib.parse import quote_plus
 
 from compat import HAS_SCRAPLING, Adaptor, StealthySession
 from constants import PHONE_RE, TRADE_KW
-from models import Contractor
-
-
 from http_client import SearchCancelled, check_cancelled, interruptible_sleep
+from models import Contractor
 
 logger = logging.getLogger("ContractorFinder")
 

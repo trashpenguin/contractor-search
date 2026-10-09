@@ -1,4 +1,5 @@
 """CSV exports preserve contact provenance and replace destination files atomically."""
+
 from __future__ import annotations
 
 import csv
@@ -21,6 +22,14 @@ _BOARD_HEADERS = [
     "Project Address",
     "Subcontractor Role",
     "Status",
+    "Email Method",
+    "Email Verification",
+    "Email Source",
+    "Website",
+    "Source",
+    "Discovery URL",
+    "Discovered At",
+    "Confidence",
 ]
 
 
@@ -37,6 +46,14 @@ def _to_board_row(contractor) -> dict:
         "Project Address": contractor.address,
         "Subcontractor Role": contractor.trade,
         "Status": "NOT STARTED",
+        "Email Method": contractor.email_method,
+        "Email Verification": contractor.email_status,
+        "Email Source": contractor.email_source_url,
+        "Website": contractor.website,
+        "Source": contractor.source,
+        "Discovery URL": contractor.discovery_url,
+        "Discovered At": contractor.discovered_at,
+        "Confidence": contractor.confidence,
     }
 
 
@@ -58,7 +75,6 @@ def _write_board_csv(writer, rows):
         writer.writerow({h: "" for h in _BOARD_HEADERS})  # blank spacer between groups
 
 
-
 FLAT_HEADERS = [field.name for field in fields(Contractor)]
 
 
@@ -67,8 +83,7 @@ def write_csv(path, rows, board=False):
     temporary = None
     try:
         with tempfile.NamedTemporaryFile(
-            mode="w", newline="", encoding="utf-8-sig",
-            dir=destination.parent, delete=False
+            mode="w", newline="", encoding="utf-8-sig", dir=destination.parent, delete=False
         ) as handle:
             temporary = handle.name
             headers = _BOARD_HEADERS if board else FLAT_HEADERS

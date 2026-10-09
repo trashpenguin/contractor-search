@@ -10,12 +10,9 @@ from cache import CACHE
 from compat import HAS_SCRAPLING, Adaptor, Fetcher, StealthySession
 from constants import PHONE_RE, SCRAPE_SKIP, TRADE_KW
 from extractor import _parse_phone
-from http_client import http_get
+from http_client import SearchCancelled, check_cancelled, http_get, interruptible_sleep
 from models import Contractor
-
 from proxy import PROXY_MGR
-
-from http_client import SearchCancelled, check_cancelled, interruptible_sleep
 
 logger = logging.getLogger("ContractorFinder")
 
@@ -599,6 +596,9 @@ def scrape_yelp(trade: str, location: str, limit: int) -> list[Contractor]:
     if not raw_businesses:
         logger.info("[Yelp] StealthySession got nothing — trying DDG fallback")
         raw_businesses = _yelp_ddg_fallback(keyword, city_raw, state, limit)
+
+    if not raw_businesses:
+        raise RuntimeError("Yelp returned no parseable results; access may be blocked")
 
     # ── Biz page enrichment (http_get — not the blocked session) ─────────────
     out: list[Contractor] = []

@@ -11,9 +11,9 @@ from config import DDG_CAP, SEM_DDG, SEM_DEFAULT, SEM_GOOGLE, SEM_YELLOWPAGES
 from constants import _FATAL_PROXY_ERRORS, SCRAPE_SKIP, SKIP_DOMAINS, TRADE_KW
 from email_hunter import _ddg_email_hunt, _scan_js_for_email, _scan_sitemap_for_email, _whois_email
 from extractor import _clean_email, _ok_email, extract_contacts, verify_email
-from provenance import record_contact
-from http_client import call_with_stop, current_search_stop, http_get
+from http_client import call_with_stop, http_get
 from models import Contractor
+from provenance import record_contact
 from proxy import PROXY_MGR
 
 logger = logging.getLogger("ContractorFinder")
@@ -119,16 +119,19 @@ def _same_business(left: Contractor, right: Contractor) -> bool:
     if left.place_id and left.place_id == right.place_id:
         return True
     phone_match = bool(lp and lp == rp)
-    domain_match = bool(_domain_key(left.website) and
-                        _domain_key(left.website) == _domain_key(right.website))
+    domain_match = bool(
+        _domain_key(left.website) and _domain_key(left.website) == _domain_key(right.website)
+    )
     address_match = bool(la and la == ra)
     exact_name = re.sub(r"[^a-z0-9]", "", left.name.lower()) == re.sub(
         r"[^a-z0-9]", "", right.name.lower()
     )
-    return bool(phone_match or
-                domain_match or
-                (address_match and _similar(left.name, right.name)) or
-                (exact_name and left.name.strip()))
+    return bool(
+        phone_match
+        or domain_match
+        or (address_match and _similar(left.name, right.name))
+        or (exact_name and left.name.strip())
+    )
 
 
 def dedup(rows: list[Contractor]) -> list[Contractor]:
@@ -157,7 +160,8 @@ def website_matches(contractor: Contractor, html: str) -> bool:
     """Require a business name plus phone or location evidence before guessing."""
     text = re.sub(r"<[^>]*>", " ", html).lower()
     words = [
-        word for word in re.findall(r"[a-z0-9]+", contractor.name.lower())
+        word
+        for word in re.findall(r"[a-z0-9]+", contractor.name.lower())
         if word not in {"llc", "inc", "co", "corp", "company", "the", "and"}
     ]
     if not words or not all(word in text for word in words):
@@ -167,8 +171,8 @@ def website_matches(contractor: Contractor, html: str) -> bool:
         return True
     address_words = re.findall(r"[a-z0-9]+", contractor.address.lower())
     return bool(
-        any(word.isdigit() and word in text for word in address_words) and
-        sum(word in text for word in address_words if len(word) >= 4) >= 2
+        any(word.isdigit() and word in text for word in address_words)
+        and sum(word in text for word in address_words if len(word) >= 4) >= 2
     )
 
 
@@ -203,7 +207,7 @@ async def _fetch_one(session, url: str, timeout, use_proxy: bool = False) -> str
         return ""
 
 
-async def async_scrape_website(url: str, session, timeout) -> tuple[str, str]:
+async def async_scrape_website(url: str, session, timeout, origins=None) -> tuple[str, str]:
     """
     Scrape a contractor website using the shared session.
     Checks homepage + up to 3 contact/about subpages.
@@ -214,9 +218,25 @@ async def async_scrape_website(url: str, session, timeout) -> tuple[str, str]:
     if not html:
         return "", ""
     email, phone = extract_contacts(html)
-    # JS file scan while we still have the homepage HTML in memory
-    if not email:
-        email = await asyncio.to_thread(call_with_stop, current_search_stop(), _scan_js_for_email, url, html)
+    if origins is not None:
+        if email:
+            origins["email_source_url"] = url
+        if phone:
+            origins["phone_source_url"] = url
+    # Fetch linked scripts asynchronously so Stop cancels these requests too.
+    if not email and HAS_SCRAPLING:
+        page = Adaptor(html)
+        domain = urlparse(url).netloc
+        scripts = [urljoin(url, el.attrib.get("src", "")) for el in page.css("script[src]")]
+        for script_url in [item for item in scripts if urlparse(item).netloc == domain][:5]:
+            javascript = await _fetch_one(session, script_url, timeout)
+            if len(javascript) > 500_000:
+                continue
+            email, _ = extract_contacts(javascript)
+            if email:
+                if origins is not None:
+                    origins["email_source_url"] = script_url
+                break
     if (not email or not phone) and HAS_SCRAPLING:
         page = Adaptor(html)
         hints = ("contact", "about", "team", "reach", "support")
@@ -253,8 +273,12 @@ async def async_scrape_website(url: str, session, timeout) -> tuple[str, str]:
                 se, sp = extract_contacts(sub_html)
                 if not email:
                     email = se
+                    if se and origins is not None:
+                        origins["email_source_url"] = sub_url
                 if not phone:
                     phone = sp
+                    if sp and origins is not None:
+                        origins["phone_source_url"] = sub_url
     return email, phone
 
 
@@ -330,7 +354,9 @@ async def enrich_batch_async(
                 from scrapers.ddg import ddg_search
 
                 q = quote_plus(f'"{c.name}" "{loc_hint}" -yelp -yellowpages -bbb')
-                candidates = await asyncio.to_thread(call_with_stop, stop_ev, ddg_search, q, pages=1)
+                candidates = await asyncio.to_thread(
+                    call_with_stop, stop_ev, ddg_search, q, pages=1
+                )
                 for _, url, _ in candidates:
                     if url.startswith("http") and not any(d in url for d in SKIP_DOMAINS):
                         candidate_html = await _fetch_one(session, url, timeout)
@@ -347,18 +373,23 @@ async def enrich_batch_async(
                     if not c.email:
                         raw_e = cached_contact.get("email", "")
                         c.email = _clean_email(raw_e) if raw_e else ""
+                        c.email_source_url = cached_contact.get("email_source_url", "")
                     if not c.phone:
                         c.phone = cached_contact.get("phone", "")
+                        c.phone_source_url = cached_contact.get("phone_source_url", "")
                     if not c.website:
                         c.website = cached_contact.get("website", "")
                 else:
-                    we, wp = await async_scrape_website(c.website, session, timeout)
+                    origins = {}
+                    we, wp = await async_scrape_website(c.website, session, timeout, origins)
                     if not c.email:
                         c.email = we
+                        c.email_source_url = origins.get("email_source_url", "")
                     if not c.phone:
                         c.phone = wp
+                        c.phone_source_url = origins.get("phone_source_url", "")
                     if cache_key and (we or wp):
-                        CACHE.set_contact(cache_key, we, wp, c.website)
+                        CACHE.set_contact(cache_key, we, wp, c.website, origins)
                 record_contact(c, c.website)
             # Step 4: email pattern guessing from domain (MX-verified)
             if not c.email and c.website:
@@ -373,7 +404,6 @@ async def enrich_batch_async(
                             c.email_method = "guessed"
                             c.email_source_url = ""
                             c.confidence = "unconfirmed"
-
 
     async with aiohttp.ClientSession(
         headers=_AIOHTTP_HEADERS,

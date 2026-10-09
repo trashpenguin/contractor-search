@@ -118,10 +118,12 @@ def _ensure_browsers() -> None:
 
     thread = _InstallThread()
     thread.line_ready.connect(log.appendPlainText)
+
     def on_install_done(ok):
         log.appendPlainText(
-            "Browser engines are ready." if ok else
-            "Setup failed. Browser sources are unavailable; retry setup before using them."
+            "Browser engines are ready."
+            if ok
+            else "Setup failed. Browser sources are unavailable; retry setup before using them."
         )
         btn.setEnabled(True)
 

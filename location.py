@@ -1,4 +1,5 @@
 """Shared location validation and distance conversion."""
+
 from __future__ import annotations
 
 import math
@@ -7,8 +8,10 @@ import re
 
 def valid_location(value: str) -> bool:
     value = value.strip()
-    return bool(re.fullmatch(r"\d{5}(?:-\d{4})?", value) or
-                (len(value) >= 3 and re.search(r"[a-zA-Z]", value)))
+    return bool(
+        re.fullmatch(r"\d{5}(?:-\d{4})?", value)
+        or (len(value) >= 3 and re.search(r"[a-zA-Z]", value))
+    )
 
 
 def miles_to_meters(miles: float) -> int:

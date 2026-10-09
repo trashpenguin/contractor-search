@@ -6,11 +6,9 @@ from urllib.parse import quote_plus, unquote_plus
 
 from compat import HAS_SCRAPLING, Adaptor, StealthySession
 from constants import TRADE_KW
-from models import Contractor
-
-from proxy import PROXY_MGR
-
 from http_client import SearchCancelled, check_cancelled, interruptible_sleep
+from models import Contractor
+from proxy import PROXY_MGR
 
 logger = logging.getLogger("ContractorFinder")
 
@@ -121,7 +119,7 @@ def scrape_google_search(trade: str, location: str, limit: int) -> list[Contract
     connection failures (ERR_PROXY_CONNECTION_FAILED etc.).
     """
     if not HAS_SCRAPLING:
-        return []
+        raise RuntimeError("Google Search requires Scrapling browser dependencies")
 
     query_terms: list[str] = TRADE_KW[trade].get("gsearch", [TRADE_KW[trade]["google"]])
     seen_phones: set[str] = set()
@@ -237,5 +235,7 @@ def scrape_google_search(trade: str, location: str, limit: int) -> list[Contract
         if not need_new_session or not PROXY_MGR.ready:
             break
 
+    if rate_limited and not out:
+        raise RuntimeError("Google Search was rate limited")
     logger.info(f"[GSearch] {trade}: {len(out)} total")
     return out[:limit]

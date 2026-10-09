@@ -16,13 +16,14 @@ logger = logging.getLogger("ContractorFinder")
 class ProxyEntry:
     """Tracks health of one proxy."""
 
-    __slots__ = ("url", "score", "uses", "latency")
+    __slots__ = ("url", "score", "uses", "latency", "_domain_bans")
 
     def __init__(self, url: str, latency: float):
         self.url = url
         self.score = 5
         self.uses = 0
         self.latency = latency
+        self._domain_bans = set()
 
 
 class ProxyManager:
@@ -146,11 +147,13 @@ class ProxyManager:
             p = urlparse(url)
             if p.netloc and not any(d in p.netloc for d in skip_dirs):
                 return None
-        return self._get_next()
+        return self._get_next(urlparse(url).hostname or "")
 
-    def _get_next(self) -> str | None:
+    def _get_next(self, domain="") -> str | None:
         with self._lock:
-            active = [e for e in self._pool if e.score > 0]
+            if not self._enabled:
+                return None
+            active = [e for e in self._pool if e.score > 0 and domain not in e._domain_bans]
             if not active:
                 return None
             # Clamp index in case pool shrank since last call

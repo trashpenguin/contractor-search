@@ -74,6 +74,9 @@ class ContactCache:
                 created_at REAL
             )"""
             )
+            columns = {row[1] for row in conn.execute("PRAGMA table_info(contacts)")}
+            if "metadata" not in columns:
+                conn.execute("ALTER TABLE contacts ADD COLUMN metadata TEXT DEFAULT '{}'")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_contacts_ts ON contacts(created_at)")
             conn.commit()
             self._conn = conn
@@ -86,22 +89,23 @@ class ContactCache:
         try:
             with self._lock:
                 row = self._conn.execute(
-                    "SELECT email, phone, website, created_at FROM contacts WHERE key=?", (key,)
+                    "SELECT email, phone, website, created_at, metadata FROM contacts WHERE key=?", (key,)
                 ).fetchone()
                 if row and (time.time() - row[3]) < self.TTL_CONTACT:
-                    return {"email": row[0], "phone": row[1], "website": row[2]}
+                    return {"email": row[0], "phone": row[1], "website": row[2], **json.loads(row[4] or "{}")}
         except Exception as e:
             logger.warning(f"[Cache] get_contact failed: {e}")
         return None
 
-    def set_contact(self, key: str, email: str, phone: str, website: str):
+    def set_contact(self, key: str, email: str, phone: str, website: str, metadata=None):
         if not self._conn:
             return
         try:
             with self._lock:
                 self._conn.execute(
-                    "INSERT OR REPLACE INTO contacts VALUES (?,?,?,?,?)",
-                    (key, email, phone, website, time.time()),
+                    "INSERT OR REPLACE INTO contacts (key,email,phone,website,created_at,metadata) "
+                    "VALUES (?,?,?,?,?,?)",
+                    (key, email, phone, website, time.time(), json.dumps(metadata or {})),
                 )
                 self._conn.commit()
         except Exception as e:
