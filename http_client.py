@@ -11,19 +11,63 @@ from proxy import PROXY_MGR
 
 logger = logging.getLogger("ContractorFinder")
 
-_ASYNC_LOOP: asyncio.AbstractEventLoop | None = None
-_ASYNC_LOOP_LOCK = threading.Lock()
+class SearchCancelled(Exception):
+    """Raised when the current search was stopped."""
+
+
+_SEARCH_CONTEXT = threading.local()
+
+
+def set_search_stop(event):
+    _SEARCH_CONTEXT.stop = event
+
+
+def current_search_stop():
+    return getattr(_SEARCH_CONTEXT, "stop", None)
+
+
+def call_with_stop(event, function, *args, **kwargs):
+    previous = current_search_stop()
+    set_search_stop(event)
+    try:
+        check_cancelled()
+        return function(*args, **kwargs)
+    finally:
+        set_search_stop(previous)
+
+
+def check_cancelled():
+    event = getattr(_SEARCH_CONTEXT, "stop", None)
+    if event is not None and event.is_set():
+        raise SearchCancelled()
+
+
+def interruptible_sleep(seconds):
+    event = getattr(_SEARCH_CONTEXT, "stop", None)
+    if event is not None:
+        if event.wait(seconds):
+            raise SearchCancelled()
+    else:
+        _time.sleep(seconds)
+
+
+_LOOP_CONTEXT = threading.local()
 
 
 def get_event_loop() -> asyncio.AbstractEventLoop:
-    """Returns a persistent event loop for the scraping thread."""
-    global _ASYNC_LOOP
-    with _ASYNC_LOOP_LOCK:
-        if _ASYNC_LOOP is None or _ASYNC_LOOP.is_closed():
-            _ASYNC_LOOP = asyncio.new_event_loop()
-            asyncio.set_event_loop(_ASYNC_LOOP)
-            logger.debug("Created new persistent async event loop")
-        return _ASYNC_LOOP
+    """One event loop per worker thread; never shared across searches."""
+    loop = getattr(_LOOP_CONTEXT, "loop", None)
+    if loop is None or loop.is_closed():
+        loop = asyncio.new_event_loop()
+        _LOOP_CONTEXT.loop = loop
+    return loop
+
+
+def close_event_loop():
+    loop = getattr(_LOOP_CONTEXT, "loop", None)
+    if loop is not None and not loop.is_closed():
+        loop.close()
+    _LOOP_CONTEXT.loop = None
 
 
 def _urllib_get(url: str, timeout: int = 15) -> str:
@@ -43,7 +87,7 @@ def _http_get_once(url: str, timeout: int = 8, use_proxy: bool = False) -> str:
     if not HAS_SCRAPLING:
         return _urllib_get(url, timeout)
     try:
-        kwargs: dict = {"timeout": timeout}
+        kwargs: dict = {"timeout": timeout, "verify": True}
         if proxy:
             kwargs["proxy"] = proxy
         r = Fetcher.get(url, **kwargs)
@@ -63,17 +107,19 @@ def http_get(url: str, timeout: int = 8, use_proxy: bool = False, retries: int =
     """HTTP GET with exponential backoff on transient failures (1s, 2s delays)."""
     delay = 1.0
     for attempt in range(retries + 1):
+        check_cancelled()
         result = _http_get_once(url, timeout, use_proxy)
         if result:
             return result
         if attempt < retries:
-            _time.sleep(delay)
+            interruptible_sleep(delay)
             delay *= 2
     return ""
 
 
 def stealth_get(url: str, wait: int = 3000, need_js: bool = False) -> str:
     """Single stealth browser fetch. Always returns str."""
+    check_cancelled()
     if not HAS_SCRAPLING:
         return ""
     try:
@@ -92,6 +138,7 @@ def stealth_get(url: str, wait: int = 3000, need_js: bool = False) -> str:
 
 
 def post_bytes(url: str, data: bytes, hdrs: dict) -> bytes:
+    check_cancelled()
     try:
         req = Request(url, data=data, headers=hdrs, method="POST")
         with urlopen(req, timeout=60) as r:

@@ -6,6 +6,7 @@ from PySide6.QtWidgets import QStyledItemDelegate, QTableWidgetItem
 
 from constants import SOURCE_COLORS, TRADE_COLORS
 from extractor import email_role_warning
+from provenance import email_label
 from gui.style import VERIFY_COLORS, VERIFY_ICONS
 
 _EMAIL_COL = 4
@@ -60,8 +61,10 @@ class TableMixin:
     def _fill_row(self, row: int, c):
         bg = QColor("#161925") if row % 2 == 1 else QColor("#1a1d27")
         vc = VERIFY_COLORS.get(c.email_status, "#94a3b8")
-        vi = f"{VERIFY_ICONS.get(c.email_status, '')} {c.email_status}".strip()
+        vi = f"{VERIFY_ICONS.get(c.email_status, '')} {email_label(c)}".strip()
         note = email_role_warning(c.email) if c.email else ""
+        if c.email_method == "guessed":
+            note = "Unconfirmed mailbox guess"
         vals = [
             (c.trade, TRADE_COLORS.get(c.trade, "#e2e8f0"), True),
             (c.source, SOURCE_COLORS.get(c.source, "#94a3b8"), True),
@@ -81,6 +84,7 @@ class TableMixin:
                 item.setFont(QFont("Segoe UI", 11, QFont.Bold))
             if col in (_EMAIL_COL, _WEBSITE_COL) and val:
                 item.setToolTip("Click to open")
+            item.setData(Qt.ItemDataRole.UserRole, c.record_id)
             self.table.setItem(row, col, item)
         self.table.setRowHeight(row, 30)
 

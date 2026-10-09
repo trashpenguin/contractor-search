@@ -8,6 +8,9 @@ from compat import HAS_SCRAPLING, Adaptor, StealthySession
 from constants import ADDR_RE, PHONE_RE, TRADE_KW
 from models import Contractor
 
+
+from http_client import SearchCancelled, check_cancelled, interruptible_sleep
+
 logger = logging.getLogger("ContractorFinder")
 
 # ── APP_INITIALIZATION_STATE parser ──────────────────────────────────────────
@@ -241,6 +244,8 @@ def scrape_google(
                 )
                 raw = resp.body or b""
                 html = raw.decode("utf-8", errors="ignore") if isinstance(raw, bytes) else raw
+            except SearchCancelled:
+                raise
             except Exception as e:
                 logger.warning(f"[Google] Load error: {type(e).__name__}")
                 return out
@@ -308,6 +313,8 @@ def scrape_google(
                         )
                     )
 
+    except SearchCancelled:
+        raise
     except Exception as e:
         logger.error(f"[Google] Session error: {type(e).__name__}: {e}")
 

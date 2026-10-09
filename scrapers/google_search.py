@@ -2,13 +2,15 @@ from __future__ import annotations
 
 import logging
 import re
-import time
 from urllib.parse import quote_plus, unquote_plus
 
 from compat import HAS_SCRAPLING, Adaptor, StealthySession
 from constants import TRADE_KW
 from models import Contractor
+
 from proxy import PROXY_MGR
+
+from http_client import SearchCancelled, check_cancelled, interruptible_sleep
 
 logger = logging.getLogger("ContractorFinder")
 
@@ -157,6 +159,8 @@ def scrape_google_search(trade: str, location: str, limit: int) -> list[Contract
                             html = resp.body or ""
                             if isinstance(html, bytes):
                                 html = html.decode("utf-8", errors="ignore")
+                        except SearchCancelled:
+                            raise
                         except Exception as e:
                             if proxy_url and PROXY_MGR.ready and _is_proxy_error(e):
                                 PROXY_MGR.mark_bad(proxy_url, "dead")
@@ -215,13 +219,15 @@ def scrape_google_search(trade: str, location: str, limit: int) -> list[Contract
 
                         logger.info(f"[GSearch] {trade}: +{new} new (total {len(out)})")
                         if page_num < _PAGES_PER_QUERY - 1:
-                            time.sleep(1.5)
+                            interruptible_sleep(1.5)
 
                     if term_done:
                         terms_todo.pop(0)
                         if terms_todo and not need_new_session:
-                            time.sleep(1.5)
+                            interruptible_sleep(1.5)
 
+        except SearchCancelled:
+            raise
         except Exception as e:
             logger.info(f"[GSearch] {trade}: session error: {type(e).__name__}: {e}")
             if proxy_url and PROXY_MGR.ready and _is_proxy_error(e):

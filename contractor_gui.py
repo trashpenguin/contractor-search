@@ -80,12 +80,10 @@ def _ensure_browsers() -> None:
     Uses the driver executables shipped with the playwright/patchright packages so
     it works whether running from source or as a PyInstaller bundle.
     """
-    import glob as _glob
-    import subprocess
+    from browser_setup import browsers_ready, install_browsers
 
-    localappdata = os.environ.get("LOCALAPPDATA", "")
-    if _glob.glob(os.path.join(localappdata, "ms-playwright", "chromium-*")):
-        return  # already installed
+    if browsers_ready():
+        return
 
     from PySide6.QtCore import Qt, QThread
     from PySide6.QtCore import Signal as _Signal
@@ -96,29 +94,7 @@ def _ensure_browsers() -> None:
         done = _Signal(bool)
 
         def run(self) -> None:
-            ok = True
-            try:
-                from patchright._impl._driver import compute_driver_executable as _pr_drv
-                from playwright._impl._driver import compute_driver_executable as _pw_drv
-
-                for _cde in (_pw_drv, _pr_drv):
-                    drv, env = _cde()
-                    proc = subprocess.Popen(
-                        [str(drv), "install", "chromium"],
-                        env=env,
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.STDOUT,
-                        text=True,
-                    )
-                    for ln in proc.stdout:
-                        self.line_ready.emit(ln.rstrip())
-                    proc.wait()
-                    if proc.returncode != 0:
-                        ok = False
-            except Exception as exc:
-                self.line_ready.emit(f"Error during browser install: {exc}")
-                ok = False
-            self.done.emit(ok)
+            self.done.emit(install_browsers(self.line_ready.emit))
 
     dlg = QDialog()
     dlg.setWindowTitle("Contractor Finder — First-Time Setup")
@@ -142,16 +118,29 @@ def _ensure_browsers() -> None:
 
     thread = _InstallThread()
     thread.line_ready.connect(log.appendPlainText)
-    thread.done.connect(lambda _ok: btn.setEnabled(True))
+    def on_install_done(ok):
+        log.appendPlainText(
+            "Browser engines are ready." if ok else
+            "Setup failed. Browser sources are unavailable; retry setup before using them."
+        )
+        btn.setEnabled(True)
+
+    thread.done.connect(on_install_done)
     thread.start()
     dlg.exec()
+    thread.wait()
 
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     app.setStyleSheet(STYLE)
     app.setApplicationName("Contractor Finder v3")
-    _ensure_browsers()
+    if "--smoke-test" not in sys.argv:
+        _ensure_browsers()
     w = MainWindow()
     w.show()
+    if "--smoke-test" in sys.argv:
+        from PySide6.QtCore import QTimer
+
+        QTimer.singleShot(200, app.quit)
     sys.exit(app.exec())

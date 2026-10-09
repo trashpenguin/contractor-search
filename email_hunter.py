@@ -14,6 +14,8 @@ from constants import EMAIL_RE
 from extractor import _clean_email, _ok_email
 from http_client import http_get
 
+from http_client import SearchCancelled, check_cancelled, interruptible_sleep
+
 logger = logging.getLogger("ContractorFinder")
 
 
@@ -98,6 +100,8 @@ def _whois_email(domain: str) -> str:
             if _ok_email(e) and not any(p in e for p in privacy):
                 logger.debug(f"[WHOIS] email found for {domain}")
                 return e
+    except SearchCancelled:
+        raise
     except Exception:
         pass
     return ""

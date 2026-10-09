@@ -3,11 +3,10 @@ from __future__ import annotations
 import re
 import time
 
-from PySide6.QtGui import QBrush, QColor
-from PySide6.QtWidgets import QMessageBox, QTableWidgetItem
+from PySide6.QtWidgets import QMessageBox
 
 from cache import SEARCH_HISTORY
-from gui.style import VERIFY_COLORS, VERIFY_ICONS
+from location import valid_location
 from proxy import PROXY_MGR
 from workers import SearchWorker, VerifyWorker
 
@@ -36,23 +35,10 @@ class SearchMixin:
             return
         loc = self.loc.currentText().strip()
 
-        if not loc:
-            QMessageBox.warning(self, "Invalid Location", "Enter a US city, state, or ZIP code.")
+        if not valid_location(loc):
+            QMessageBox.warning(self, "Invalid Location", "Enter a US city/state or ZIP code.")
             return
-        if len(loc) < 3:
-            QMessageBox.warning(
-                self,
-                "Invalid Location",
-                'Location is too short. Try something like "Detroit, MI" or "48091".',
-            )
-            return
-        if not re.search(r"[a-zA-Z]", loc):
-            QMessageBox.warning(
-                self,
-                "Invalid Location",
-                "Location must contain letters.\n"
-                'Examples: "Warren, MI 48091", "Chicago, IL", "Detroit"',
-            )
+        if self._busy():
             return
 
         trades = [t for t, cb in self.chk_t.items() if cb.isChecked()]
@@ -64,6 +50,7 @@ class SearchMixin:
             QMessageBox.warning(self, "Error", "Select at least one source.")
             return
 
+        self._set_busy(True)
         self.rows.clear()
         self.table.setRowCount(0)
         for c in self.stats.values():
@@ -103,13 +90,16 @@ class SearchMixin:
         )
         self.worker.progress.connect(self._on_progress)
         self.worker.result.connect(self._add_row)
-        self.worker.finished.connect(self._on_done)
+        self.worker.completed.connect(self._on_done)
+        self.worker.finished.connect(self._worker_exited)
         self.worker.source_done.connect(self._on_source_done)
         self.worker.start()
 
     def stop_search(self):
         if self.worker:
             self.worker.stop()
+        if self.vworker:
+            self.vworker.stop()
         self.xbtn.setEnabled(False)
 
     def _on_progress(self, p: int, msg: str):
@@ -124,23 +114,23 @@ class SearchMixin:
                 lbl.setStyleSheet(_SRC_RUN_STYLE)
                 break
 
-    def _on_done(self, ok: bool, err: str):
-        from constants import TRADE_COLORS
-
+    def _on_done(self, status: str, detail: str):
         self._timer.stop()
         self._elapsed_lbl.setText("")
-        self.pbar.setValue(100)
-        self.sbtn.setEnabled(True)
+        self.pbar.setValue(100 if status == "completed" else self.pbar.value())
         self.xbtn.setEnabled(False)
-        if ok:
-            counts = {t: sum(1 for r in self.rows if r.trade == t) for t in TRADE_COLORS}
-            active = {t: n for t, n in counts.items() if n > 0}
-            self.statusBar().showMessage(
-                f"Done — {len(self.rows)} contractors  |  "
-                + "  ".join(f"{t}:{n}" for t, n in active.items())
-            )
-        else:
-            QMessageBox.critical(self, "Search Failed", err)
+        labels = {
+            "completed": "Completed",
+            "partial": "Partial results",
+            "cancelled": "Cancelled",
+            "failed": "Failed",
+        }
+        self.statusBar().showMessage(
+            f"{labels.get(status, status)} — {len(self.rows)} contractors"
+            + (f" | {detail}" if detail else "")
+        )
+        if status == "failed":
+            QMessageBox.warning(self, "Search Failed", detail)
 
     def _tick_elapsed(self):
         elapsed = int(time.time() - self._search_start)
@@ -174,9 +164,13 @@ class SearchMixin:
                 lbl.setStyleSheet(_SRC_ERR_STYLE)
 
     def start_verify(self):
+        if self._busy():
+            return
         if not self.rows:
             QMessageBox.information(self, "", "Run a search first.")
             return
+        self._set_busy(True)
+        self.xbtn.setEnabled(True)
         self.vbtn.setEnabled(False)
         self.pbar.setValue(0)
         self.vworker = VerifyWorker(self.rows)
@@ -184,22 +178,36 @@ class SearchMixin:
             lambda p, m: (self.pbar.setValue(p), self.statusBar().showMessage(m))
         )
         self.vworker.result.connect(self._on_verify)
-        self.vworker.finished.connect(self._on_verify_done)
+        self.vworker.completed.connect(self._on_verify_done)
+        self.vworker.finished.connect(self._worker_exited)
         self.vworker.start()
 
-    def _on_verify(self, idx: int, status: str, reason: str):
-        if idx < self.table.rowCount():
-            vi = f"{VERIFY_ICONS.get(status, '')} {status}".strip()
-            item = QTableWidgetItem(vi)
-            item.setForeground(QBrush(QColor(VERIFY_COLORS.get(status, "#94a3b8"))))
-            self.table.setItem(idx, 5, item)
+    def _on_verify(self, record_id: str, status: str, reason: str):
+        contractor = next((row for row in self.rows if row.record_id == record_id), None)
+        if contractor is None:
+            return
+        contractor.email_status = status
+        self._filter()
 
     def _on_verify_done(self):
         self.pbar.setValue(100)
-        self.vbtn.setEnabled(True)
+        self.xbtn.setEnabled(False)
         v = sum(1 for r in self.rows if r.email_status == "valid")
         inv = sum(1 for r in self.rows if r.email_status == "invalid")
         unk = sum(1 for r in self.rows if r.email_status == "unknown")
         self.statusBar().showMessage(
             f"Email verify done  —  ✅ Valid:{v}  ❌ Invalid:{inv}  ❓ Unknown:{unk}"
         )
+
+    def _busy(self):
+        return any(worker is not None and worker.isRunning() for worker in (self.worker, self.vworker))
+
+    def _set_busy(self, busy):
+        for control in [self.sbtn, self.vbtn, self.clear_btn, self.clear_cache_btn]:
+            control.setEnabled(not busy)
+
+    def _worker_exited(self):
+        if not self._busy():
+            self._set_busy(False)
+            if getattr(self, "_close_pending", False):
+                self.close()

@@ -154,12 +154,12 @@ class ContactCache:
             return 0
         try:
             with self._lock:
+                count = self._conn.execute("SELECT COUNT(*) FROM contacts").fetchone()[0]
+                count += self._conn.execute("SELECT COUNT(*) FROM ddg_cache").fetchone()[0]
                 self._conn.execute("DELETE FROM contacts")
                 self._conn.execute("DELETE FROM ddg_cache")
                 self._conn.commit()
-                return self._conn.execute(
-                    "SELECT changes() + (SELECT COUNT(*) FROM sqlite_master WHERE 1=0)"
-                ).fetchone()[0]
+                return count
         except Exception as e:
             logger.warning(f"[Cache] clear_all failed: {e}")
             return 0

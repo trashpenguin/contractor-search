@@ -18,7 +18,7 @@ try:
         StealthyFetcher,
         StealthySession,
     )
-    from scrapling.parser import Adaptor
+    from scrapling.parser import Selector as Adaptor
 
     HAS_SCRAPLING = True
 except Exception as _e:

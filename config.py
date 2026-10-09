@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import os
+import tempfile
+import threading
 from pathlib import Path
 
 # ── Logging ───────────────────────────────────────────────────────────────────
@@ -35,7 +37,8 @@ _SETTINGS_FILE = Path.home() / ".contractor_finder_settings.json"
 
 def _load_settings() -> dict:
     try:
-        return json.loads(_SETTINGS_FILE.read_text(encoding="utf-8"))
+        data = json.loads(_SETTINGS_FILE.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
     except Exception:
         return {}
 
@@ -44,10 +47,23 @@ def get(key: str, default=None):
     return _load_settings().get(key, default)
 
 
+_SETTINGS_LOCK = threading.Lock()
+
+
 def set(key: str, value) -> None:  # noqa: A001
-    data = _load_settings()
-    data[key] = value
-    try:
-        _SETTINGS_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
-    except Exception:
-        pass
+    with _SETTINGS_LOCK:
+        data = _load_settings()
+        data[key] = value
+        temp_path = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w", encoding="utf-8", dir=_SETTINGS_FILE.parent, delete=False
+            ) as handle:
+                temp_path = handle.name
+                json.dump(data, handle, indent=2)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temp_path, _SETTINGS_FILE)
+        finally:
+            if temp_path and os.path.exists(temp_path):
+                os.unlink(temp_path)
