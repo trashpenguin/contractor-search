@@ -109,7 +109,9 @@ def run_search(
                                 "OSM": "https://www.openstreetmap.org",
                                 "Google": "https://www.google.com/maps",
                                 "Google Search": "https://www.google.com/search",
-                                "Google Places": "https://places.googleapis.com/v1/places:searchText",
+                                "Google Places": (
+                                    "https://places.googleapis.com/v1/places:searchText"
+                                ),
                                 "YellowPages": "https://www.yellowpages.com/search",
                                 "Yelp": "https://www.yelp.com/search",
                             }[src]

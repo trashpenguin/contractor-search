@@ -163,7 +163,7 @@ def _search_old(
                 result = det.get("result", {})
                 phone = result.get("formatted_phone_number", "")
                 website = result.get("website", "")
-                time.sleep(0.15)
+                interruptible_sleep(0.15)
 
             out.append(
                 Contractor(
@@ -185,7 +185,7 @@ def _search_old(
         pages += 1
         if not page_token or not results:
             break
-        time.sleep(2)
+        interruptible_sleep(2)
 
     return out
 
@@ -194,8 +194,8 @@ def scrape_google_places(
     trade: str,
     location: str,
     limit: int,
-    lat: float = 0.0,
-    lon: float = 0.0,
+    lat: float | None = None,
+    lon: float | None = None,
     radius_m: int = 40000,
 ) -> list[Contractor]:
     """Fetch contractors via Google Places API.
@@ -203,7 +203,7 @@ def scrape_google_places(
     Tries the new Places API v1 first (phone + website in one call),
     falls back to the legacy Text Search + Details API.
     Reads the API key from ~/.contractor_finder_settings.json.
-    Returns [] if no key is configured.
+    Raises a source failure if no key is configured.
     """
     from config import get as settings_get
 

@@ -65,7 +65,7 @@ class TradeSelector(QWidget):
         # Pre-create checkboxes immediately so _checkboxes is always populated
         # even before the panel is first opened.
         for t, col in self._trades.items():
-            cb = QCheckBox(t)
+            cb = QCheckBox(t, self)
             cb.setChecked(True)
             cb.setStyleSheet(
                 f"QCheckBox{{color:{col};font-weight:700;font-size:12px;padding:3px 4px;}}"
@@ -116,7 +116,7 @@ class TradeSelector(QWidget):
             cb.setVisible(True)
 
     def _build_panel(self) -> QFrame:
-        panel = QFrame(None, Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint)
+        panel = QFrame(self, Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint)
         panel.setStyleSheet(
             "QFrame{background:#1a1d27;border:1px solid #334155;border-radius:8px;}"
             "QCheckBox{color:#e2e8f0;font-size:12px;padding:2px 4px;}"

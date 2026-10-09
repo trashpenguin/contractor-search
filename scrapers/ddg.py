@@ -52,6 +52,7 @@ def ddg_search(query: str, pages: int = 2) -> list[tuple[str, str, str]]:
     Search DuckDuckGo HTML endpoint. Rate-limited. Results cached for 24h.
     Returns list of (title, real_url, snippet).
     """
+    check_cancelled()
     cached = CACHE.get_ddg(query)
     if cached is not None:
         return [tuple(r) for r in cached]

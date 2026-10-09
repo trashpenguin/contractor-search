@@ -6,7 +6,7 @@ from urllib.parse import quote_plus, unquote_plus
 
 from compat import HAS_SCRAPLING, Adaptor, StealthySession
 from constants import ADDR_RE, PHONE_RE, TRADE_KW
-from http_client import SearchCancelled, check_cancelled, interruptible_sleep
+from http_client import SearchCancelled, check_cancelled
 from models import Contractor
 
 logger = logging.getLogger("ContractorFinder")
@@ -221,12 +221,13 @@ def scrape_google(
 
     Scroll: attempted via the Playwright page handle if accessible.
     """
+    check_cancelled()
     out: list[Contractor] = []
     if not HAS_SCRAPLING:
-        return out
+        raise RuntimeError("Browser scraping dependencies are unavailable")
 
     term = quote_plus(f"{TRADE_KW[trade]['google']} near {location}")
-    if lat and lon:
+    if lat is not None and lon is not None:
         # City-level zoom (12) centred on the geocoded coordinates
         url = f"https://www.google.com/maps/search/{term}/@{lat},{lon},12z?hl=en"
     else:

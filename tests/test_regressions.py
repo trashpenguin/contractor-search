@@ -210,6 +210,7 @@ def test_osm_fallback_filters_radius():
 
 def test_proxy_bans_are_honored():
     from proxy import ProxyEntry, ProxyManager
+
     manager = ProxyManager()
     manager._enabled = True
     manager._pool = [ProxyEntry("http://proxy:8080", 1)]
@@ -221,6 +222,7 @@ def test_proxy_bans_are_honored():
 
 def test_async_enrichment_stop_cancels_pending_requests():
     from enricher import enrich_batch_async
+
     started = threading.Event()
     stop = threading.Event()
 
@@ -230,10 +232,13 @@ def test_async_enrichment_stop_cancels_pending_requests():
         return ""
 
     async def scenario():
-        task = asyncio.create_task(enrich_batch_async(
-            [Contractor("HVAC", "Smith", website="https://smith.example")],
-            "Warren", stop_ev=stop
-        ))
+        task = asyncio.create_task(
+            enrich_batch_async(
+                [Contractor("HVAC", "Smith", website="https://smith.example")],
+                "Warren",
+                stop_ev=stop,
+            )
+        )
         while not started.is_set():
             await asyncio.sleep(0.01)
         stop.set()
@@ -246,6 +251,7 @@ def test_async_enrichment_stop_cancels_pending_requests():
 
 def test_worker_verification_snapshot_uses_ids():
     from workers import VerifyWorker
+
     row = Contractor("HVAC", "Smith", email="info@smith.com")
     worker = VerifyWorker([row])
     results = []
@@ -258,13 +264,12 @@ def test_worker_verification_snapshot_uses_ids():
 
 def test_async_contact_source_tracks_subpage():
     from enricher import async_scrape_website
+
     origins = {}
     homepage = '<a href="/contact">Contact</a>'
     contact = '<a href="mailto:office@smithhvac.com">Email</a><p>(313) 555-1234</p>'
     with patch("enricher._fetch_one", side_effect=[homepage, contact]):
-        email, phone = asyncio.run(async_scrape_website(
-            "https://smithhvac.com", None, 1, origins
-        ))
+        email, phone = asyncio.run(async_scrape_website("https://smithhvac.com", None, 1, origins))
     assert email == "office@smithhvac.com"
     assert phone
     assert origins["email_source_url"] == "https://smithhvac.com/contact"
@@ -272,8 +277,14 @@ def test_async_contact_source_tracks_subpage():
 
 def test_cached_contact_preserves_source_url(tmp_path):
     from cache import ContactCache
+
     with patch.object(ContactCache, "DB_PATH", str(tmp_path / "cache.db")):
         cache = ContactCache()
-    cache.set_contact("site", "office@smith.com", "", "https://smith.com",
-                      {"email_source_url": "https://smith.com/contact"})
+    cache.set_contact(
+        "site",
+        "office@smith.com",
+        "",
+        "https://smith.com",
+        {"email_source_url": "https://smith.com/contact"},
+    )
     assert cache.get_contact("site")["email_source_url"] == "https://smith.com/contact"

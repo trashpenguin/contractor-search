@@ -83,11 +83,12 @@ def scrape_yellowpages(trade: str, location: str, limit: int) -> list[Contractor
     Retries up to 3 times on Cloudflare blocks.
     Tries __NEXT_DATA__ JSON extraction first, falls back to CSS selectors.
     """
+    check_cancelled()
     out: list[Contractor] = []
     term = TRADE_KW[trade]["yp"]
     loc = quote_plus(location)
     if not HAS_SCRAPLING:
-        return out
+        raise RuntimeError("Browser scraping dependencies are unavailable")
 
     def _is_cloudflare(html) -> bool:
         if not html:
@@ -262,6 +263,7 @@ def scrape_yellowpages(trade: str, location: str, limit: int) -> list[Contractor
                             website=website,
                             address=address,
                             source="YellowPages",
+                            discovery_url=profile_url,
                         )
                         c._yp_profile_url = profile_url  # type: ignore[attr-defined]
                         out.append(c)

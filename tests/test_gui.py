@@ -3,16 +3,10 @@
 from unittest.mock import patch
 
 import pytest
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QApplication
+from PySide6.QtCore import QCoreApplication, QEvent, Qt
 
 from gui.main_window import MainWindow
 from models import Contractor
-
-
-@pytest.fixture(scope="module")
-def application():
-    return QApplication.instance() or QApplication([])
 
 
 @pytest.fixture
@@ -22,6 +16,8 @@ def window(application):
             window = MainWindow()
     yield window
     window.close()
+    window.deleteLater()
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
     application.processEvents()
 
 

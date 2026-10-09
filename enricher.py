@@ -345,7 +345,7 @@ async def enrich_batch_async(
                     c.website = guessed
                     c.website_method = "corroborated-domain"
                     c.confidence = "corroborated"
-            # Step 2: DDG website lookup — capped at DDG_CAP per batch.
+            # Step 2: DDG website lookup — capped at DDG_CAP per trade.
             # OSM contractors rarely have websites; hitting DDG 30+ times
             # causes 202 rate-limit responses and blocks all three trades.
             if not c.website and c.name and ddg_count[0] < DDG_CAP:

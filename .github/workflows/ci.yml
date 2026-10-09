@@ -48,7 +48,7 @@ jobs:
         with:
           python-version: "3.11"
           cache: pip
-      - run: pip install -r requirements.txt pyinstaller
+      - run: pip install -r requirements.txt -r requirements-build.txt
       - name: Resolved dependencies
         run: python tools/dependency_report.py
       - name: Browser installation and launch

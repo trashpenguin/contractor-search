@@ -89,10 +89,16 @@ class ContactCache:
         try:
             with self._lock:
                 row = self._conn.execute(
-                    "SELECT email, phone, website, created_at, metadata FROM contacts WHERE key=?", (key,)
+                    "SELECT email, phone, website, created_at, metadata FROM contacts WHERE key=?",
+                    (key,),
                 ).fetchone()
                 if row and (time.time() - row[3]) < self.TTL_CONTACT:
-                    return {"email": row[0], "phone": row[1], "website": row[2], **json.loads(row[4] or "{}")}
+                    return {
+                        "email": row[0],
+                        "phone": row[1],
+                        "website": row[2],
+                        **json.loads(row[4] or "{}"),
+                    }
         except Exception as e:
             logger.warning(f"[Cache] get_contact failed: {e}")
         return None

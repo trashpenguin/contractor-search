@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 import time
 
 from PySide6.QtWidgets import QMessageBox

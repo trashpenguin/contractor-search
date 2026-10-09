@@ -118,6 +118,7 @@ def scrape_google_search(trade: str, location: str, limit: int) -> list[Contract
     the scraper before returning. Restarts session with a new proxy on
     connection failures (ERR_PROXY_CONNECTION_FAILED etc.).
     """
+    check_cancelled()
     if not HAS_SCRAPLING:
         raise RuntimeError("Google Search requires Scrapling browser dependencies")
 
